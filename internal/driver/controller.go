@@ -2,59 +2,51 @@ package driver
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"t-cloud-public-csi-driver/internal/cloud/evs"
+	"t-cloud-public-csi-driver/internal/backend"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
 type controllerServer struct {
 	csi.UnimplementedControllerServer
 	cfg     config.Config
+	driver  backend.Driver
 	service controllerService
 }
 
 type controllerService interface {
-	CreateVolume(context.Context, evs.CreateVolumeRequest) (*evs.Volume, error)
+	CreateVolume(context.Context, backend.CreateVolumeRequest) (*backend.Volume, error)
 	DeleteVolume(context.Context, string) error
-	AttachVolume(context.Context, string, string) (*evs.Attachment, error)
+	AttachVolume(context.Context, string, string) (*backend.Attachment, error)
 	DetachVolume(context.Context, string, string) error
 	ExpandVolume(context.Context, string, int64) (int64, error)
 }
 
-func newControllerServer(cfg config.Config, service controllerService) *controllerServer {
+func newControllerServer(cfg config.Config, driver backend.Driver, service controllerService) *controllerServer {
 	return &controllerServer{
 		cfg:     cfg,
+		driver:  driver,
 		service: service,
 	}
 }
 
 func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	if req.GetName() == "" {
-		return nil, status.Error(codes.InvalidArgument, "name is required")
-	}
-	if req.GetCapacityRange() == nil || req.GetCapacityRange().GetRequiredBytes() <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "required capacity must be set")
+	createReq, err := s.driver.BuildCreateVolumeRequest(s.cfg, req)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "create volume request: %v", err)
 	}
 
-	vol, err := s.service.CreateVolume(ctx, evs.CreateVolumeRequest{
-		Name:             req.GetName(),
-		SizeBytes:        req.GetCapacityRange().GetRequiredBytes(),
-		AvailabilityZone: valueOrDefault(req.GetParameters()["availabilityZone"], s.cfg.AvailabilityZone),
-		VolumeType:       req.GetParameters()["volumeType"],
-		Description:      req.GetParameters()["description"],
-		Metadata:         req.GetParameters(),
-	})
+	vol, err := s.service.CreateVolume(ctx, createReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create volume: %v", err)
 	}
 
 	return &csi.CreateVolumeResponse{
-		Volume: toCSIVolume(vol),
+		Volume: toCSIVolume(s.driver, vol),
 	}, nil
 }
 
@@ -81,12 +73,7 @@ func (s *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi
 	}
 
 	return &csi.ControllerPublishVolumeResponse{
-		PublishContext: map[string]string{
-			"attachmentID": attachment.ID,
-			"devicePath":   attachment.Device,
-			"nodeID":       attachment.ServerID,
-			"volumeID":     attachment.VolumeID,
-		},
+		PublishContext: s.driver.PublishContext(attachment),
 	}, nil
 }
 
@@ -111,7 +98,7 @@ func (s *controllerServer) ValidateVolumeCapabilities(_ context.Context, req *cs
 	}
 
 	for _, capability := range req.GetVolumeCapabilities() {
-		if err := validateVolumeCapability(capability); err != nil {
+		if err := s.driver.ValidateVolumeCapability(capability); err != nil {
 			return &csi.ValidateVolumeCapabilitiesResponse{
 				Message: err.Error(),
 			}, nil
@@ -128,11 +115,7 @@ func (s *controllerServer) ValidateVolumeCapabilities(_ context.Context, req *cs
 
 func (s *controllerServer) ControllerGetCapabilities(context.Context, *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
-		Capabilities: []*csi.ControllerServiceCapability{
-			controllerCapability(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME),
-			controllerCapability(csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME),
-			controllerCapability(csi.ControllerServiceCapability_RPC_EXPAND_VOLUME),
-		},
+		Capabilities: controllerCapabilities(s.driver.ControllerCapabilities()),
 	}, nil
 }
 
@@ -179,19 +162,14 @@ func (s *controllerServer) ControllerGetVolume(context.Context, *csi.ControllerG
 	return nil, status.Error(codes.Unimplemented, "ControllerGetVolume is not implemented yet")
 }
 
-func toCSIVolume(vol *evs.Volume) *csi.Volume {
+func toCSIVolume(driver backend.Driver, vol *backend.Volume) *csi.Volume {
 	return &csi.Volume{
 		CapacityBytes: vol.SizeBytes,
 		VolumeId:      vol.ID,
 		AccessibleTopology: []*csi.Topology{
-			{Segments: map[string]string{"topology.evs.tcloudpublic.com/zone": vol.AvailabilityZone}},
+			{Segments: map[string]string{driver.TopologyKey(): vol.AvailabilityZone}},
 		},
-		VolumeContext: map[string]string{
-			"name":             vol.Name,
-			"availabilityZone": vol.AvailabilityZone,
-			"volumeType":       vol.VolumeType,
-			"status":           vol.Status,
-		},
+		VolumeContext: driver.VolumeContext(vol),
 	}
 }
 
@@ -205,30 +183,10 @@ func controllerCapability(cap csi.ControllerServiceCapability_RPC_Type) *csi.Con
 	}
 }
 
-func validateVolumeCapability(capability *csi.VolumeCapability) error {
-	if capability == nil {
-		return fmt.Errorf("nil capability")
+func controllerCapabilities(caps []csi.ControllerServiceCapability_RPC_Type) []*csi.ControllerServiceCapability {
+	result := make([]*csi.ControllerServiceCapability, 0, len(caps))
+	for _, cap := range caps {
+		result = append(result, controllerCapability(cap))
 	}
-	if capability.GetBlock() == nil && capability.GetMount() == nil {
-		return fmt.Errorf("either block or mount access type is required")
-	}
-	if capability.GetAccessMode() == nil {
-		return fmt.Errorf("access mode is required")
-	}
-
-	switch capability.GetAccessMode().GetMode() {
-	case csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
-		csi.VolumeCapability_AccessMode_SINGLE_NODE_SINGLE_WRITER,
-		csi.VolumeCapability_AccessMode_SINGLE_NODE_MULTI_WRITER:
-		return nil
-	default:
-		return fmt.Errorf("access mode %s is not supported", capability.GetAccessMode().GetMode().String())
-	}
-}
-
-func valueOrDefault(value, fallback string) string {
-	if value != "" {
-		return value
-	}
-	return fallback
+	return result
 }

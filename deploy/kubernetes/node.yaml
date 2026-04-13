@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tcloud-public-csi-node
+  namespace: tcloud-public-csi-system
+spec:
+  selector:
+    matchLabels:
+      app: tcloud-public-csi-node
+  template:
+    metadata:
+      labels:
+        app: tcloud-public-csi-node
+    spec:
+      serviceAccountName: tcloud-public-csi-node-sa
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name: tcloud-public-csi-driver
+          image: ghcr.io/example/tcloud-public-csi-driver:dev
+          securityContext:
+            privileged: true
+          env:
+            - name: CSI_BACKEND
+              value: evs
+            - name: CSI_ENDPOINT
+              value: unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock
+            - name: CSI_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OS_AUTH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AUTH_URL
+            - name: OS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_REGION
+            - name: OS_AVAILABILITY_ZONE
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AVAILABILITY_ZONE
+            - name: OS_DOMAIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_DOMAIN_NAME
+                  optional: true
+            - name: OS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_USERNAME
+            - name: OS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PASSWORD
+            - name: OS_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PROJECT_ID
+                  optional: true
+            - name: OS_PROJECT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PROJECT_NAME
+                  optional: true
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /var/lib/kubelet/plugins/csi.evs.tcloudpublic.com
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: device-dir
+              mountPath: /dev
+            - name: sys-dir
+              mountPath: /sys
+        - name: liveness-probe
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+          args:
+            - --csi-address=/csi/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.evs.tcloudpublic.com
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+        - name: sys-dir
+          hostPath:
+            path: /sys

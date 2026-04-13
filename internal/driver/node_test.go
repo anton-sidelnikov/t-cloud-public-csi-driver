@@ -7,6 +7,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 
+	backendevs "t-cloud-public-csi-driver/internal/backend/evs"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
@@ -89,6 +90,7 @@ func TestNodeStageVolumeMountsFilesystemVolume(t *testing.T) {
 	deviceManager := &fakeDeviceManager{}
 	server := &nodeServer{
 		cfg:           config.Config{},
+		driver:        backendevs.New(),
 		mounter:       mounter,
 		deviceManager: deviceManager,
 	}
@@ -123,6 +125,7 @@ func TestNodeStageVolumeMountsFilesystemVolume(t *testing.T) {
 func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       mounter,
 		deviceManager: &fakeDeviceManager{},
 	}
@@ -146,6 +149,7 @@ func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       mounter,
 		deviceManager: &fakeDeviceManager{},
 	}
@@ -181,6 +185,7 @@ func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       mounter,
 		deviceManager: &fakeDeviceManager{},
 	}
@@ -208,6 +213,7 @@ func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 func TestNodeExpandVolumeResizesFilesystem(t *testing.T) {
 	deviceManager := &fakeDeviceManager{}
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       &fakeMounter{mounted: map[string]bool{}},
 		deviceManager: deviceManager,
 	}
@@ -239,6 +245,7 @@ func TestNodeExpandVolumeResizesFilesystem(t *testing.T) {
 func TestNodeUnpublishVolumeUnmountsAndRemovesPath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{"/pods/vol-1": true}}
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       mounter,
 		deviceManager: &fakeDeviceManager{},
 	}
@@ -260,6 +267,7 @@ func TestNodeUnpublishVolumeUnmountsAndRemovesPath(t *testing.T) {
 
 func TestNodeStageVolumeRequiresDevicePathForFilesystem(t *testing.T) {
 	server := &nodeServer{
+		driver:        backendevs.New(),
 		mounter:       &fakeMounter{mounted: map[string]bool{}},
 		deviceManager: &fakeDeviceManager{},
 	}
@@ -276,7 +284,7 @@ func TestNodeStageVolumeRequiresDevicePathForFilesystem(t *testing.T) {
 }
 
 func TestNodeCapabilitiesExposeStageAndExpand(t *testing.T) {
-	server := newNodeServer(config.Config{})
+	server := newNodeServer(config.Config{}, backendevs.New())
 
 	resp, err := server.NodeGetCapabilities(context.Background(), &csi.NodeGetCapabilitiesRequest{})
 	if err != nil {

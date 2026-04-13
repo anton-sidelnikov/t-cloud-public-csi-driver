@@ -10,6 +10,7 @@ import (
 	golangsdk "github.com/opentelekomcloud/gophertelekomcloud"
 	"github.com/opentelekomcloud/gophertelekomcloud/openstack"
 
+	"t-cloud-public-csi-driver/internal/backend"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
@@ -28,32 +29,6 @@ type Service struct {
 	cfg        config.Config
 	blockStore *golangsdk.ServiceClient
 	compute    *golangsdk.ServiceClient
-}
-
-type Volume struct {
-	ID               string
-	Name             string
-	Status           string
-	AvailabilityZone string
-	VolumeType       string
-	SizeBytes        int64
-	Attachments      []Attachment
-}
-
-type Attachment struct {
-	ID       string
-	ServerID string
-	VolumeID string
-	Device   string
-}
-
-type CreateVolumeRequest struct {
-	Name             string
-	SizeBytes        int64
-	AvailabilityZone string
-	VolumeType       string
-	Description      string
-	Metadata         map[string]string
 }
 
 func NewService(cfg config.Config, authOpts golangsdk.AuthOptions) (*Service, error) {
@@ -79,7 +54,7 @@ func NewService(cfg config.Config, authOpts golangsdk.AuthOptions) (*Service, er
 	}, nil
 }
 
-func (s *Service) CreateVolume(ctx context.Context, req CreateVolumeRequest) (*Volume, error) {
+func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequest) (*backend.Volume, error) {
 	body := map[string]any{
 		"volume": map[string]any{
 			"name":              req.Name,
@@ -113,7 +88,7 @@ func (s *Service) DeleteVolume(ctx context.Context, volumeID string) error {
 	return nil
 }
 
-func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (*Attachment, error) {
+func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (*backend.Attachment, error) {
 	body := map[string]any{
 		"volumeAttachment": map[string]any{
 			"volumeId": volumeID,
@@ -127,7 +102,7 @@ func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (
 		return nil, err
 	}
 
-	return &Attachment{
+	return &backend.Attachment{
 		ID:       resp.Attachment.ID,
 		ServerID: serverID,
 		VolumeID: volumeID,
@@ -171,7 +146,7 @@ func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeByte
 	return volume.SizeBytes, nil
 }
 
-func (s *Service) GetVolume(ctx context.Context, volumeID string) (*Volume, error) {
+func (s *Service) GetVolume(ctx context.Context, volumeID string) (*backend.Volume, error) {
 	var resp struct {
 		Volume volumePayload `json:"volume"`
 	}
@@ -182,7 +157,7 @@ func (s *Service) GetVolume(ctx context.Context, volumeID string) (*Volume, erro
 	return resp.Volume.toDomain(), nil
 }
 
-func (s *Service) waitForVolumeStatus(ctx context.Context, volumeID, desired string) (*Volume, error) {
+func (s *Service) waitForVolumeStatus(ctx context.Context, volumeID, desired string) (*backend.Volume, error) {
 	deadline := time.Now().Add(s.cfg.Timeout)
 
 	for {
@@ -248,10 +223,10 @@ type volumePayload struct {
 	Attachments      []attachmentPayload `json:"attachments"`
 }
 
-func (p volumePayload) toDomain() *Volume {
-	attachments := make([]Attachment, 0, len(p.Attachments))
+func (p volumePayload) toDomain() *backend.Volume {
+	attachments := make([]backend.Attachment, 0, len(p.Attachments))
 	for _, attachment := range p.Attachments {
-		attachments = append(attachments, Attachment{
+		attachments = append(attachments, backend.Attachment{
 			ID:       attachment.ID,
 			ServerID: attachment.ServerID,
 			VolumeID: attachment.VolumeID,
@@ -259,7 +234,7 @@ func (p volumePayload) toDomain() *Volume {
 		})
 	}
 
-	return &Volume{
+	return &backend.Volume{
 		ID:               p.ID,
 		Name:             p.Name,
 		Status:           p.Status,

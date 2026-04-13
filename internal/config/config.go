@@ -11,9 +11,11 @@ import (
 const (
 	defaultDriverName = "csi.evs.tcloudpublic.com"
 	defaultEndpoint   = "unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock"
+	defaultBackend    = "evs"
 )
 
 type Config struct {
+	Backend          string
 	DriverName       string
 	Endpoint         string
 	NodeID           string
@@ -33,6 +35,7 @@ type Config struct {
 
 func FromEnv() (Config, error) {
 	cfg := Config{
+		Backend:           envOrDefault("CSI_BACKEND", defaultBackend),
 		DriverName:        envOrDefault("CSI_DRIVER_NAME", defaultDriverName),
 		Endpoint:          envOrDefault("CSI_ENDPOINT", defaultEndpoint),
 		NodeID:            strings.TrimSpace(os.Getenv("CSI_NODE_ID")),

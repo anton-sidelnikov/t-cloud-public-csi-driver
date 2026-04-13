@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcloud-public-csi-controller
+  namespace: tcloud-public-csi-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcloud-public-csi-controller
+  template:
+    metadata:
+      labels:
+        app: tcloud-public-csi-controller
+    spec:
+      serviceAccountName: tcloud-public-csi-controller-sa
+      containers:
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --feature-gates=Topology=true
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.8.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-resizer
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --handle-volume-inuse-error=false
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: tcloud-public-csi-driver
+          image: ghcr.io/example/tcloud-public-csi-driver:dev
+          args: []
+          env:
+            - name: CSI_BACKEND
+              value: evs
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: CSI_NODE_ID
+              value: controller
+            - name: OS_AUTH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AUTH_URL
+            - name: OS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_REGION
+            - name: OS_AVAILABILITY_ZONE
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AVAILABILITY_ZONE
+            - name: OS_DOMAIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_DOMAIN_NAME
+                  optional: true
+            - name: OS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_USERNAME
+            - name: OS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PASSWORD
+            - name: OS_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PROJECT_ID
+                  optional: true
+            - name: OS_PROJECT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PROJECT_NAME
+                  optional: true
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          emptyDir: {}

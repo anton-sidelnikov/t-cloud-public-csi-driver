@@ -9,13 +9,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"t-cloud-public-csi-driver/internal/cloud/evs"
+	"t-cloud-public-csi-driver/internal/backend"
+	backendevs "t-cloud-public-csi-driver/internal/backend/evs"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
 type fakeControllerService struct {
-	createVolumeReq evs.CreateVolumeRequest
-	createVolumeRes *evs.Volume
+	createVolumeReq backend.CreateVolumeRequest
+	createVolumeRes *backend.Volume
 	createVolumeErr error
 
 	deleteVolumeID  string
@@ -23,7 +24,7 @@ type fakeControllerService struct {
 
 	attachVolumeID string
 	attachNodeID   string
-	attachRes      *evs.Attachment
+	attachRes      *backend.Attachment
 	attachErr      error
 
 	detachVolumeID string
@@ -36,7 +37,7 @@ type fakeControllerService struct {
 	expandErr      error
 }
 
-func (f *fakeControllerService) CreateVolume(_ context.Context, req evs.CreateVolumeRequest) (*evs.Volume, error) {
+func (f *fakeControllerService) CreateVolume(_ context.Context, req backend.CreateVolumeRequest) (*backend.Volume, error) {
 	f.createVolumeReq = req
 	return f.createVolumeRes, f.createVolumeErr
 }
@@ -46,7 +47,7 @@ func (f *fakeControllerService) DeleteVolume(_ context.Context, volumeID string)
 	return f.deleteVolumeErr
 }
 
-func (f *fakeControllerService) AttachVolume(_ context.Context, volumeID, nodeID string) (*evs.Attachment, error) {
+func (f *fakeControllerService) AttachVolume(_ context.Context, volumeID, nodeID string) (*backend.Attachment, error) {
 	f.attachVolumeID = volumeID
 	f.attachNodeID = nodeID
 	return f.attachRes, f.attachErr
@@ -65,7 +66,7 @@ func (f *fakeControllerService) ExpandVolume(_ context.Context, volumeID string,
 }
 
 func TestCreateVolumeValidatesRequest(t *testing.T) {
-	server := newControllerServer(config.Config{}, &fakeControllerService{})
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
 
 	_, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{})
 	assertCode(t, err, codes.InvalidArgument)
@@ -73,7 +74,7 @@ func TestCreateVolumeValidatesRequest(t *testing.T) {
 
 func TestCreateVolumePassesParametersToService(t *testing.T) {
 	service := &fakeControllerService{
-		createVolumeRes: &evs.Volume{
+		createVolumeRes: &backend.Volume{
 			ID:               "vol-1",
 			Name:             "pvc-1",
 			Status:           "available",
@@ -82,7 +83,7 @@ func TestCreateVolumePassesParametersToService(t *testing.T) {
 			SizeBytes:        10,
 		},
 	}
-	server := newControllerServer(config.Config{AvailabilityZone: "fallback-az"}, service)
+	server := newControllerServer(config.Config{AvailabilityZone: "fallback-az"}, backendevs.New(), service)
 
 	resp, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name: "pvc-1",
@@ -114,7 +115,7 @@ func TestCreateVolumePassesParametersToService(t *testing.T) {
 
 func TestCreateVolumeUsesExplicitAvailabilityZone(t *testing.T) {
 	service := &fakeControllerService{
-		createVolumeRes: &evs.Volume{
+		createVolumeRes: &backend.Volume{
 			ID:               "vol-1",
 			Name:             "pvc-1",
 			Status:           "available",
@@ -123,7 +124,7 @@ func TestCreateVolumeUsesExplicitAvailabilityZone(t *testing.T) {
 			SizeBytes:        10,
 		},
 	}
-	server := newControllerServer(config.Config{AvailabilityZone: "fallback-az"}, service)
+	server := newControllerServer(config.Config{AvailabilityZone: "fallback-az"}, backendevs.New(), service)
 
 	_, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
 		Name: "pvc-1",
@@ -144,13 +145,14 @@ func TestCreateVolumeUsesExplicitAvailabilityZone(t *testing.T) {
 
 func TestControllerPublishVolumeReturnsPublishContext(t *testing.T) {
 	service := &fakeControllerService{
-		attachRes: &evs.Attachment{
+		attachRes: &backend.Attachment{
 			ID:       "att-1",
 			ServerID: "node-1",
 			VolumeID: "vol-1",
+			Device:   "/dev/vdb",
 		},
 	}
-	server := newControllerServer(config.Config{}, service)
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
 
 	resp, err := server.ControllerPublishVolume(context.Background(), &csi.ControllerPublishVolumeRequest{
 		VolumeId: "vol-1",
@@ -163,11 +165,14 @@ func TestControllerPublishVolumeReturnsPublishContext(t *testing.T) {
 	if resp.PublishContext["attachmentID"] != "att-1" {
 		t.Fatalf("unexpected publish context: %+v", resp.PublishContext)
 	}
+	if resp.PublishContext["devicePath"] != "/dev/vdb" {
+		t.Fatalf("unexpected device path in publish context: %+v", resp.PublishContext)
+	}
 }
 
 func TestControllerExpandVolumePassesCapacity(t *testing.T) {
 	service := &fakeControllerService{expandRes: 20}
-	server := newControllerServer(config.Config{}, service)
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
 
 	resp, err := server.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
 		VolumeId: "vol-1",
@@ -188,7 +193,7 @@ func TestControllerExpandVolumePassesCapacity(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilitiesRejectsUnsupportedMode(t *testing.T) {
-	server := newControllerServer(config.Config{}, &fakeControllerService{})
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
 
 	resp, err := server.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
 		VolumeId: "vol-1",
@@ -212,7 +217,7 @@ func TestValidateVolumeCapabilitiesRejectsUnsupportedMode(t *testing.T) {
 
 func TestDeleteVolumePropagatesServiceErrors(t *testing.T) {
 	service := &fakeControllerService{deleteVolumeErr: fmt.Errorf("boom")}
-	server := newControllerServer(config.Config{}, service)
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
 
 	_, err := server.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "vol-1"})
 	assertCode(t, err, codes.Internal)
@@ -223,7 +228,7 @@ func TestNodeGetInfoUsesConfig(t *testing.T) {
 		NodeID:            "node-1",
 		MaxVolumesPerNode: 64,
 		AvailabilityZone:  "eu-de-01",
-	})
+	}, backendevs.New())
 
 	resp, err := server.NodeGetInfo(context.Background(), &csi.NodeGetInfoRequest{})
 	if err != nil {
@@ -238,6 +243,7 @@ func TestNodeGetInfoUsesConfig(t *testing.T) {
 }
 
 func TestValidateVolumeCapabilityAcceptsSupportedModes(t *testing.T) {
+	driver := backendevs.New()
 	supported := []csi.VolumeCapability_AccessMode_Mode{
 		csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
 		csi.VolumeCapability_AccessMode_SINGLE_NODE_SINGLE_WRITER,
@@ -246,7 +252,7 @@ func TestValidateVolumeCapabilityAcceptsSupportedModes(t *testing.T) {
 
 	for _, mode := range supported {
 		t.Run(mode.String(), func(t *testing.T) {
-			err := validateVolumeCapability(&csi.VolumeCapability{
+			err := driver.ValidateVolumeCapability(&csi.VolumeCapability{
 				AccessType: &csi.VolumeCapability_Mount{
 					Mount: &csi.VolumeCapability_MountVolume{FsType: "ext4"},
 				},

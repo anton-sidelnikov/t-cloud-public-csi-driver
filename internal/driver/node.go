@@ -7,20 +7,23 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"t-cloud-public-csi-driver/internal/backend"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
 type nodeServer struct {
 	csi.UnimplementedNodeServer
 	cfg           config.Config
+	driver        backend.Driver
 	mounter       nodeMounter
 	deviceManager nodeDeviceManager
 }
 
-func newNodeServer(cfg config.Config) *nodeServer {
+func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 	runner := &execRunner{}
 	return &nodeServer{
 		cfg:           cfg,
+		driver:        driver,
 		mounter:       &osMounter{},
 		deviceManager: newFilesystemManager(runner),
 	}
@@ -33,14 +36,14 @@ func (s *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 	if req.GetStagingTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "staging_target_path is required")
 	}
-	if err := validateVolumeCapability(req.GetVolumeCapability()); err != nil {
+	if err := s.driver.ValidateVolumeCapability(req.GetVolumeCapability()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_capability: %v", err)
 	}
 	if req.GetVolumeCapability().GetBlock() != nil {
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
-	devicePath := req.GetPublishContext()["devicePath"]
+	devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
 	if devicePath == "" {
 		return nil, status.Error(codes.InvalidArgument, "publish_context.devicePath is required")
 	}
@@ -92,7 +95,7 @@ func (s *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target_path is required")
 	}
-	if err := validateVolumeCapability(req.GetVolumeCapability()); err != nil {
+	if err := s.driver.ValidateVolumeCapability(req.GetVolumeCapability()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_capability: %v", err)
 	}
 
@@ -106,9 +109,9 @@ func (s *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 	}
 
 	if req.GetVolumeCapability().GetBlock() != nil {
-		devicePath := req.GetPublishContext()["devicePath"]
+		devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
 		if devicePath == "" {
-			return nil, status.Error(codes.InvalidArgument, "publish_context.devicePath is required")
+			return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", s.driver.DevicePathKey())
 		}
 		if err := s.mounter.EnsureFile(targetPath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure block target: %v", err)
@@ -154,7 +157,7 @@ func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi
 		MaxVolumesPerNode: s.cfg.MaxVolumesPerNode,
 		AccessibleTopology: &csi.Topology{
 			Segments: map[string]string{
-				"topology.evs.tcloudpublic.com/zone": s.cfg.AvailabilityZone,
+				s.driver.TopologyKey(): s.cfg.AvailabilityZone,
 			},
 		},
 	}, nil
@@ -162,10 +165,7 @@ func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi
 
 func (s *nodeServer) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
 	return &csi.NodeGetCapabilitiesResponse{
-		Capabilities: []*csi.NodeServiceCapability{
-			nodeCapability(csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME),
-			nodeCapability(csi.NodeServiceCapability_RPC_EXPAND_VOLUME),
-		},
+		Capabilities: nodeCapabilities(s.driver.NodeCapabilities()),
 	}, nil
 }
 
@@ -176,7 +176,7 @@ func (s *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVo
 	if req.GetCapacityRange() == nil || req.GetCapacityRange().GetRequiredBytes() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "required capacity must be set")
 	}
-	if err := validateVolumeCapability(req.GetVolumeCapability()); err != nil {
+	if err := s.driver.ValidateVolumeCapability(req.GetVolumeCapability()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_capability: %v", err)
 	}
 	if req.GetVolumeCapability().GetBlock() != nil {
@@ -221,4 +221,12 @@ func nodeCapability(cap csi.NodeServiceCapability_RPC_Type) *csi.NodeServiceCapa
 			Rpc: &csi.NodeServiceCapability_RPC{Type: cap},
 		},
 	}
+}
+
+func nodeCapabilities(caps []csi.NodeServiceCapability_RPC_Type) []*csi.NodeServiceCapability {
+	result := make([]*csi.NodeServiceCapability, 0, len(caps))
+	for _, cap := range caps {
+		result = append(result, nodeCapability(cap))
+	}
+	return result
 }

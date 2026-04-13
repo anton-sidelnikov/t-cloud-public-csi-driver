@@ -11,13 +11,16 @@ import (
 	golangsdk "github.com/opentelekomcloud/gophertelekomcloud"
 	"google.golang.org/grpc"
 
+	backendapi "t-cloud-public-csi-driver/internal/backend"
+	backendevs "t-cloud-public-csi-driver/internal/backend/evs"
 	"t-cloud-public-csi-driver/internal/cloud/evs"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
 type Driver struct {
 	cfg        config.Config
-	service    *evs.Service
+	driver     backendapi.Driver
+	service    backendapi.Service
 	grpcServer *grpc.Server
 }
 
@@ -32,13 +35,14 @@ func New(cfg config.Config) (*Driver, error) {
 		TenantName:       cfg.ProjectName,
 	}
 
-	service, err := evs.NewService(cfg, authOpts)
+	driver, service, err := loadBackend(cfg, authOpts)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Driver{
 		cfg:     cfg,
+		driver:  driver,
 		service: service,
 	}, nil
 }
@@ -59,8 +63,8 @@ func (d *Driver) Run(ctx context.Context) error {
 	d.grpcServer = server
 
 	csi.RegisterIdentityServer(server, newIdentityServer(d.cfg))
-	csi.RegisterControllerServer(server, newControllerServer(d.cfg, d.service))
-	csi.RegisterNodeServer(server, newNodeServer(d.cfg))
+	csi.RegisterControllerServer(server, newControllerServer(d.cfg, d.driver, d.service))
+	csi.RegisterNodeServer(server, newNodeServer(d.cfg, d.driver))
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -73,5 +77,19 @@ func (d *Driver) Run(ctx context.Context) error {
 		return nil
 	case err := <-errCh:
 		return err
+	}
+}
+
+func loadBackend(cfg config.Config, authOpts golangsdk.AuthOptions) (backendapi.Driver, backendapi.Service, error) {
+	switch cfg.Backend {
+	case "evs":
+		driver := backendevs.New()
+		service, err := evs.NewService(cfg, authOpts)
+		if err != nil {
+			return nil, nil, err
+		}
+		return driver, service, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported CSI_BACKEND %q", cfg.Backend)
 	}
 }

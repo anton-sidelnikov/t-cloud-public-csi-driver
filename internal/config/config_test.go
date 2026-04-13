@@ -21,6 +21,9 @@ func TestFromEnvUsesDefaultsAndProjectName(t *testing.T) {
 	if cfg.DriverName != defaultDriverName {
 		t.Fatalf("unexpected driver name: %q", cfg.DriverName)
 	}
+	if cfg.Backend != defaultBackend {
+		t.Fatalf("unexpected backend: %q", cfg.Backend)
+	}
 	if cfg.Endpoint != defaultEndpoint {
 		t.Fatalf("unexpected endpoint: %q", cfg.Endpoint)
 	}
@@ -36,6 +39,7 @@ func TestFromEnvUsesDefaultsAndProjectName(t *testing.T) {
 }
 
 func TestFromEnvParsesOverrides(t *testing.T) {
+	t.Setenv("CSI_BACKEND", "evs")
 	t.Setenv("CSI_DRIVER_NAME", "custom.csi")
 	t.Setenv("CSI_ENDPOINT", "unix:///tmp/custom.sock")
 	t.Setenv("CSI_NODE_ID", "node-1")
@@ -56,6 +60,9 @@ func TestFromEnvParsesOverrides(t *testing.T) {
 
 	if cfg.DriverName != "custom.csi" {
 		t.Fatalf("unexpected driver name: %q", cfg.DriverName)
+	}
+	if cfg.Backend != "evs" {
+		t.Fatalf("unexpected backend: %q", cfg.Backend)
 	}
 	if cfg.Endpoint != "unix:///tmp/custom.sock" {
 		t.Fatalf("unexpected endpoint: %q", cfg.Endpoint)
