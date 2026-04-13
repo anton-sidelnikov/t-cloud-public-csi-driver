@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: evs-fs-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          echo "filesystem smoke test $(date -Iseconds)" >> /data/history.log
+          mkdir -p /data/app
+          echo "ok" > /data/app/health.txt
+          tail -f /dev/null
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: evs-fs-pvc
