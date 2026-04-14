@@ -85,8 +85,8 @@ spec:
           volumeMounts:
             - name: plugin-dir
               mountPath: /var/lib/kubelet/plugins/csi.evs.tcloudpublic.com
-            - name: pods-mount-dir
-              mountPath: /var/lib/kubelet/pods
+            - name: kubelet-dir
+              mountPath: /var/lib/kubelet
               mountPropagation: Bidirectional
             - name: device-dir
               mountPath: /dev
@@ -108,9 +108,9 @@ spec:
           hostPath:
             path: /var/lib/kubelet/plugins_registry
             type: Directory
-        - name: pods-mount-dir
+        - name: kubelet-dir
           hostPath:
-            path: /var/lib/kubelet/pods
+            path: /var/lib/kubelet
             type: Directory
         - name: device-dir
           hostPath:

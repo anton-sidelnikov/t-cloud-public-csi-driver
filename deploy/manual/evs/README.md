@@ -45,7 +45,9 @@ Objects:
 Checks:
 
 ```bash
-kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'ls -l /dev/xvdc && blockdev --getsize64 /dev/xvdc'
+kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'ls -l /dev/xvdc'
+kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'dd if=/dev/zero of=/dev/xvdc bs=1M count=4 conv=fsync'
+kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'dd if=/dev/xvdc bs=512 count=8 | hexdump -C'
 ```
 
 ## Expansion Test
@@ -82,25 +84,25 @@ Delete reclaim:
 
 Retain reclaim:
 
-- create an extra PVC against `tcloud-public-evs-retain`
-- delete the PVC and verify the PV moves to `Released` and the EVS disk is kept
-
-Example retain PVC:
+- `PersistentVolumeClaim/evs-retain-pvc`
+- `Pod/evs-retain-pod`
+- verify the retained pod can write data:
 
 ```bash
-kubectl -n tcloud-public-csi-manual apply -f - <<'EOF'
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: evs-retain-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
-  storageClassName: tcloud-public-evs-retain
-EOF
+kubectl -n tcloud-public-csi-manual exec evs-retain-pod -- sh -c 'df -h /data && cat /data/retain/marker.txt'
+```
+
+- delete the pod and PVC:
+
+```bash
+kubectl -n tcloud-public-csi-manual delete pod evs-retain-pod
+kubectl -n tcloud-public-csi-manual delete pvc evs-retain-pvc
+```
+
+- verify the PV moved to `Released` and the EVS disk was kept:
+
+```bash
+kubectl get pv | grep evs-retain-pvc
 ```
 
 ## Cleanup
@@ -109,4 +111,4 @@ EOF
 kubectl delete -k deploy/manual/evs
 ```
 
-Retained volumes created with `tcloud-public-evs-retain` must be cleaned up manually after validation.
+Retained volumes created with `tcloud-public-evs-retain` are intentionally left behind in the cloud and must be cleaned up manually after validation.
