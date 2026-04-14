@@ -71,3 +71,15 @@ func TestVolumePayloadToDomain(t *testing.T) {
 		t.Fatalf("unexpected attachments: %+v", volume.Attachments)
 	}
 }
+
+func TestExpansionReadyStatus(t *testing.T) {
+	if !expansionReadyStatus("available") {
+		t.Fatal("expected available to be expansion-ready")
+	}
+	if !expansionReadyStatus("in-use") {
+		t.Fatal("expected in-use to be expansion-ready")
+	}
+	if expansionReadyStatus("extending") {
+		t.Fatal("did not expect extending to be expansion-ready")
+	}
+}

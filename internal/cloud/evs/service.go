@@ -128,6 +128,8 @@ func (s *Service) DetachVolume(ctx context.Context, volumeID, serverID string) e
 }
 
 func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeBytes int64) (int64, error) {
+	requestedSizeBytes := sizeBytesToGiB(newSizeBytes) * gibibyte
+
 	body := map[string]any{
 		"os-extend": map[string]any{
 			"new_size": sizeBytesToGiB(newSizeBytes),
@@ -138,7 +140,7 @@ func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeByte
 		return 0, err
 	}
 
-	volume, err := s.waitForVolumeStatus(ctx, volumeID, "available")
+	volume, err := s.waitForExpandedVolume(ctx, volumeID, requestedSizeBytes)
 	if err != nil {
 		return 0, err
 	}
@@ -180,6 +182,29 @@ func (s *Service) waitForVolumeStatus(ctx context.Context, volumeID, desired str
 	}
 }
 
+func (s *Service) waitForExpandedVolume(ctx context.Context, volumeID string, requestedSizeBytes int64) (*backend.Volume, error) {
+	deadline := time.Now().Add(s.cfg.Timeout)
+
+	for {
+		volume, err := s.GetVolume(ctx, volumeID)
+		if err != nil {
+			return nil, err
+		}
+		if volume.SizeBytes >= requestedSizeBytes && expansionReadyStatus(volume.Status) {
+			return volume, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for volume %s to expand to %d bytes, last size %d, last state %s", volumeID, requestedSizeBytes, volume.SizeBytes, volume.Status)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
 func (s *Service) doJSON(ctx context.Context, method string, client *golangsdk.ServiceClient, url string, body any, out any) error {
 	_ = ctx
 
@@ -210,6 +235,15 @@ func okCodes(method string) []int {
 		return []int{http.StatusAccepted, http.StatusNoContent, http.StatusNotFound}
 	default:
 		return []int{http.StatusOK}
+	}
+}
+
+func expansionReadyStatus(status string) bool {
+	switch status {
+	case "available", "in-use":
+		return true
+	default:
+		return false
 	}
 }
 
