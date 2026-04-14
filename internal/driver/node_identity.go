@@ -96,14 +96,21 @@ func providerInstanceID(node *corev1.Node) (string, error) {
 	}
 
 	providerID := strings.TrimSpace(node.Spec.ProviderID)
+	if providerID != "" {
+		match := providerIDUUIDPattern.FindStringSubmatch(providerID)
+		if len(match) == 2 {
+			return strings.ToLower(match[1]), nil
+		}
+	}
+
+	systemUUID := strings.TrimSpace(node.Status.NodeInfo.SystemUUID)
+	if isUUID(systemUUID) {
+		return strings.ToLower(systemUUID), nil
+	}
+
 	if providerID == "" {
-		return "", fmt.Errorf("node %q does not have spec.providerID set", node.Name)
+		return "", fmt.Errorf("node %q does not have a usable spec.providerID or status.nodeInfo.systemUUID", node.Name)
 	}
 
-	match := providerIDUUIDPattern.FindStringSubmatch(providerID)
-	if len(match) != 2 {
-		return "", fmt.Errorf("node %q has unsupported providerID format %q", node.Name, providerID)
-	}
-
-	return strings.ToLower(match[1]), nil
+	return "", fmt.Errorf("node %q has unsupported providerID format %q and unusable systemUUID %q", node.Name, providerID, systemUUID)
 }

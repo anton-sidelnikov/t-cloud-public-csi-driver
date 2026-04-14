@@ -40,3 +40,18 @@ func TestProviderInstanceIDRejectsUnsupportedFormat(t *testing.T) {
 		t.Fatal("expected error for unsupported providerID format")
 	}
 }
+
+func TestProviderInstanceIDFallsBackToSystemUUID(t *testing.T) {
+	node := &corev1.Node{}
+	node.Name = "worker-1"
+	node.Spec.ProviderID = "openstack:///not-a-uuid"
+	node.Status.NodeInfo.SystemUUID = "123E4567-E89B-12D3-A456-426614174000"
+
+	got, err := providerInstanceID(node)
+	if err != nil {
+		t.Fatalf("providerInstanceID returned error: %v", err)
+	}
+	if got != "123e4567-e89b-12d3-a456-426614174000" {
+		t.Fatalf("unexpected instance id: %q", got)
+	}
+}
