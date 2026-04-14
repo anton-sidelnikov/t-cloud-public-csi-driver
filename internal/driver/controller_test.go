@@ -224,17 +224,21 @@ func TestDeleteVolumePropagatesServiceErrors(t *testing.T) {
 }
 
 func TestNodeGetInfoUsesConfig(t *testing.T) {
-	server := newNodeServer(config.Config{
-		NodeID:            "node-1",
-		MaxVolumesPerNode: 64,
-		AvailabilityZone:  "eu-de-01",
-	}, backendevs.New())
+	server := &nodeServer{
+		cfg: config.Config{
+			NodeID:            "node-1",
+			MaxVolumesPerNode: 64,
+			AvailabilityZone:  "eu-de-01",
+		},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "123e4567-e89b-12d3-a456-426614174000"},
+	}
 
 	resp, err := server.NodeGetInfo(context.Background(), &csi.NodeGetInfoRequest{})
 	if err != nil {
 		t.Fatalf("NodeGetInfo returned error: %v", err)
 	}
-	if resp.NodeId != "node-1" {
+	if resp.NodeId != "123e4567-e89b-12d3-a456-426614174000" {
 		t.Fatalf("unexpected node id: %q", resp.NodeId)
 	}
 	if resp.AccessibleTopology.GetSegments()["topology.evs.tcloudpublic.com/zone"] != "eu-de-01" {

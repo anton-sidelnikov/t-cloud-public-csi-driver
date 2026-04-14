@@ -14,6 +14,7 @@
 - Added repository hygiene files: `.gitignore` and a `Makefile` for format, test, build, image, and manifest workflows.
 - Added a multi-stage `Dockerfile` and `.dockerignore` so the driver can be built into a runnable container image.
 - Added GitHub Actions CI for vet, test, lint, and Docker image build/push to GHCR.
+- Added EVS manual test manifests for filesystem, raw block, expansion, and reclaim-policy validation.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
 

@@ -13,19 +13,21 @@ import (
 
 type nodeServer struct {
 	csi.UnimplementedNodeServer
-	cfg           config.Config
-	driver        backend.Driver
-	mounter       nodeMounter
-	deviceManager nodeDeviceManager
+	cfg            config.Config
+	driver         backend.Driver
+	nodeIDResolver nodeIDResolver
+	mounter        nodeMounter
+	deviceManager  nodeDeviceManager
 }
 
 func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 	runner := &execRunner{}
 	return &nodeServer{
-		cfg:           cfg,
-		driver:        driver,
-		mounter:       &osMounter{},
-		deviceManager: newFilesystemManager(runner),
+		cfg:            cfg,
+		driver:         driver,
+		nodeIDResolver: newNodeIDResolver(cfg),
+		mounter:        &osMounter{},
+		deviceManager:  newFilesystemManager(runner),
 	}
 }
 
@@ -152,8 +154,13 @@ func (s *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpub
 }
 
 func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	nodeID, err := s.nodeIDResolver.Resolve()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "resolve node instance id: %v", err)
+	}
+
 	return &csi.NodeGetInfoResponse{
-		NodeId:            s.cfg.NodeID,
+		NodeId:            nodeID,
 		MaxVolumesPerNode: s.cfg.MaxVolumesPerNode,
 		AccessibleTopology: &csi.Topology{
 			Segments: map[string]string{

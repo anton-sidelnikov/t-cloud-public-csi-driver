@@ -89,10 +89,11 @@ func TestNodeStageVolumeMountsFilesystemVolume(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	deviceManager := &fakeDeviceManager{}
 	server := &nodeServer{
-		cfg:           config.Config{},
-		driver:        backendevs.New(),
-		mounter:       mounter,
-		deviceManager: deviceManager,
+		cfg:            config.Config{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        mounter,
+		deviceManager:  deviceManager,
 	}
 
 	_, err := server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{
@@ -125,9 +126,10 @@ func TestNodeStageVolumeMountsFilesystemVolume(t *testing.T) {
 func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       mounter,
-		deviceManager: &fakeDeviceManager{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
 	}
 
 	_, err := server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{
@@ -149,9 +151,10 @@ func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       mounter,
-		deviceManager: &fakeDeviceManager{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
 	}
 
 	_, err := server.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
@@ -185,9 +188,10 @@ func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       mounter,
-		deviceManager: &fakeDeviceManager{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
 	}
 
 	_, err := server.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
@@ -213,9 +217,10 @@ func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 func TestNodeExpandVolumeResizesFilesystem(t *testing.T) {
 	deviceManager := &fakeDeviceManager{}
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       &fakeMounter{mounted: map[string]bool{}},
-		deviceManager: deviceManager,
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        &fakeMounter{mounted: map[string]bool{}},
+		deviceManager:  deviceManager,
 	}
 
 	resp, err := server.NodeExpandVolume(context.Background(), &csi.NodeExpandVolumeRequest{
@@ -245,9 +250,10 @@ func TestNodeExpandVolumeResizesFilesystem(t *testing.T) {
 func TestNodeUnpublishVolumeUnmountsAndRemovesPath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{"/pods/vol-1": true}}
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       mounter,
-		deviceManager: &fakeDeviceManager{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
 	}
 
 	_, err := server.NodeUnpublishVolume(context.Background(), &csi.NodeUnpublishVolumeRequest{
@@ -267,9 +273,10 @@ func TestNodeUnpublishVolumeUnmountsAndRemovesPath(t *testing.T) {
 
 func TestNodeStageVolumeRequiresDevicePathForFilesystem(t *testing.T) {
 	server := &nodeServer{
-		driver:        backendevs.New(),
-		mounter:       &fakeMounter{mounted: map[string]bool{}},
-		deviceManager: &fakeDeviceManager{},
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		mounter:        &fakeMounter{mounted: map[string]bool{}},
+		deviceManager:  &fakeDeviceManager{},
 	}
 
 	_, err := server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{

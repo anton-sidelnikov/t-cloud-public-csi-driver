@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: evs-block-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          ls -l /dev/xvdc
+          dd if=/dev/zero of=/dev/xvdc bs=1M count=8 conv=fsync
+          dd if=/dev/xvdc bs=1M count=1 | hexdump -C | head
+          tail -f /dev/null
+      volumeDevices:
+        - name: raw
+          devicePath: /dev/xvdc
+  volumes:
+    - name: raw
+      persistentVolumeClaim:
+        claimName: evs-block-pvc

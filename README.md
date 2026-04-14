@@ -108,6 +108,15 @@ Current manifest assumptions:
 - the node plugin runs privileged and mounts `/dev`, `/sys`, and kubelet plugin paths
 - snapshot sidecars are not included yet because snapshot APIs are not implemented in the driver
 
+Manual EVS validation manifests live in [deploy/manual/evs](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/deploy/manual/evs).
+
+They cover:
+
+- filesystem PVC + pod validation
+- raw block PVC + pod validation
+- online expansion checks
+- reclaim policy checks for `Delete` and `Retain`
+
 ## Configuration
 
 The binary reads its configuration from environment variables:
