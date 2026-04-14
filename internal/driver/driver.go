@@ -57,7 +57,9 @@ func (d *Driver) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen on %q: %w", endpoint, err)
 	}
-	defer listener.Close()
+	defer func() {
+		_ = listener.Close()
+	}()
 
 	server := grpc.NewServer()
 	d.grpcServer = server
