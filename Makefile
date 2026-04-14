@@ -21,6 +21,7 @@ help:
 	@echo "  make run              Run the CSI driver locally"
 	@echo "  make tidy             Run go mod tidy"
 	@echo "  make vet              Run go vet"
+	@echo "  make lint             Run golangci-lint"
 	@echo "  make check            Run fmt-check, vet, and test"
 	@echo "  make image            Build container image"
 	@echo "  make manifests        Print rendered Kubernetes manifests"
@@ -52,6 +53,10 @@ test: dirs
 .PHONY: vet
 vet: dirs
 	@go vet ./...
+
+.PHONY: lint
+lint:
+	@golangci-lint run ./...
 
 .PHONY: build
 build: dirs
