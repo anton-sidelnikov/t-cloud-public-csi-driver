@@ -92,6 +92,7 @@ func TestNodeStageVolumeMountsFilesystemVolume(t *testing.T) {
 		cfg:            config.Config{},
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
 		mounter:        mounter,
 		deviceManager:  deviceManager,
 	}
@@ -128,6 +129,7 @@ func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
 		mounter:        mounter,
 		deviceManager:  &fakeDeviceManager{},
 	}
@@ -153,6 +155,7 @@ func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/staging/vol-1"},
 		mounter:        mounter,
 		deviceManager:  &fakeDeviceManager{},
 	}
@@ -190,6 +193,7 @@ func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
 		mounter:        mounter,
 		deviceManager:  &fakeDeviceManager{},
 	}
@@ -219,6 +223,7 @@ func TestNodeExpandVolumeResizesFilesystem(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/pods/vol-1"},
 		mounter:        &fakeMounter{mounted: map[string]bool{}},
 		deviceManager:  deviceManager,
 	}
@@ -252,6 +257,7 @@ func TestNodeUnpublishVolumeUnmountsAndRemovesPath(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
 		mounter:        mounter,
 		deviceManager:  &fakeDeviceManager{},
 	}
@@ -275,6 +281,7 @@ func TestNodeStageVolumeRequiresDevicePathForFilesystem(t *testing.T) {
 	server := &nodeServer{
 		driver:         backendevs.New(),
 		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{},
 		mounter:        &fakeMounter{mounted: map[string]bool{}},
 		deviceManager:  &fakeDeviceManager{},
 	}
@@ -299,5 +306,36 @@ func TestNodeCapabilitiesExposeStageAndExpand(t *testing.T) {
 	}
 	if len(resp.Capabilities) != 2 {
 		t.Fatalf("unexpected capability count: %d", len(resp.Capabilities))
+	}
+}
+
+func TestNodePublishVolumeBlockResolvesDevicePath(t *testing.T) {
+	mounter := &fakeMounter{mounted: map[string]bool{}}
+	resolver := &fakeDeviceResolver{resolvedPath: "/dev/disk/by-id/virtio-volume"}
+	server := &nodeServer{
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: resolver,
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
+	}
+
+	_, err := server.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+		VolumeId:       "vol-1",
+		TargetPath:     "/pods/blockvol",
+		PublishContext: map[string]string{"devicePath": "/dev/vdb"},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NodePublishVolume returned error: %v", err)
+	}
+	if resolver.volumeID != "vol-1" || resolver.reportedPath != "/dev/vdb" {
+		t.Fatalf("unexpected resolve request: volume=%q path=%q", resolver.volumeID, resolver.reportedPath)
+	}
+	if len(mounter.mountCalls) != 1 || mounter.mountCalls[0].source != "/dev/disk/by-id/virtio-volume" {
+		t.Fatalf("unexpected mount calls: %+v", mounter.mountCalls)
 	}
 }

@@ -16,6 +16,7 @@ type nodeServer struct {
 	cfg            config.Config
 	driver         backend.Driver
 	nodeIDResolver nodeIDResolver
+	deviceResolver devicePathResolver
 	mounter        nodeMounter
 	deviceManager  nodeDeviceManager
 }
@@ -26,6 +27,7 @@ func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 		cfg:            cfg,
 		driver:         driver,
 		nodeIDResolver: newNodeIDResolver(cfg),
+		deviceResolver: newDevicePathResolver(cfg),
 		mounter:        &osMounter{},
 		deviceManager:  newFilesystemManager(runner),
 	}
@@ -48,6 +50,10 @@ func (s *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 	devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
 	if devicePath == "" {
 		return nil, status.Error(codes.InvalidArgument, "publish_context.devicePath is required")
+	}
+	devicePath, err := s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "resolve device path: %v", err)
 	}
 
 	stagingPath := req.GetStagingTargetPath()
@@ -114,6 +120,10 @@ func (s *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 		devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
 		if devicePath == "" {
 			return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", s.driver.DevicePathKey())
+		}
+		devicePath, err = s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "resolve device path: %v", err)
 		}
 		if err := s.mounter.EnsureFile(targetPath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure block target: %v", err)
