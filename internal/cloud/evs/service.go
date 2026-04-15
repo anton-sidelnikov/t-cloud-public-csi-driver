@@ -3,6 +3,7 @@ package evs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"time"
@@ -29,6 +30,7 @@ type Service struct {
 	cfg        config.Config
 	blockStore *golangsdk.ServiceClient
 	compute    *golangsdk.ServiceClient
+	logger     *slog.Logger
 }
 
 func NewService(cfg config.Config, authOpts golangsdk.AuthOptions) (*Service, error) {
@@ -51,10 +53,13 @@ func NewService(cfg config.Config, authOpts golangsdk.AuthOptions) (*Service, er
 		cfg:        cfg,
 		blockStore: blockStore,
 		compute:    compute,
+		logger:     slog.Default().With("component", "evs-service", "region", cfg.Region),
 	}, nil
 }
 
 func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequest) (*backend.Volume, error) {
+	logger := s.loggerOrDefault().With("volume_name", req.Name, "availability_zone", req.AvailabilityZone, "volume_type", req.VolumeType, "size_gib", sizeBytesToGiB(req.SizeBytes))
+	logger.Info("creating EVS volume")
 	body := map[string]any{
 		"volume": map[string]any{
 			"name":              req.Name,
@@ -70,25 +75,36 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 		Volume volumePayload `json:"volume"`
 	}
 	if err := s.doJSON(ctx, http.MethodPost, s.blockStore, s.blockStore.ServiceURL("volumes"), body, &resp); err != nil {
+		logger.Error("create EVS volume request failed", "error", err)
 		return nil, err
 	}
+	logger = logger.With("volume_id", resp.Volume.ID)
+	logger.Info("waiting for EVS volume to become available")
 
 	volume, err := s.waitForVolumeStatus(ctx, resp.Volume.ID, "available")
 	if err != nil {
+		logger.Error("EVS volume did not become available", "error", err)
 		return nil, err
 	}
+	logger.Info("EVS volume created", "status", volume.Status, "size_bytes", volume.SizeBytes)
 
 	return volume, nil
 }
 
 func (s *Service) DeleteVolume(ctx context.Context, volumeID string) error {
+	logger := s.loggerOrDefault().With("volume_id", volumeID)
+	logger.Info("deleting EVS volume")
 	if err := s.doJSON(ctx, http.MethodDelete, s.blockStore, s.blockStore.ServiceURL("volumes", volumeID), nil, nil); err != nil {
+		logger.Error("delete EVS volume request failed", "error", err)
 		return err
 	}
+	logger.Info("delete EVS volume request accepted")
 	return nil
 }
 
 func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (*backend.Attachment, error) {
+	logger := s.loggerOrDefault().With("volume_id", volumeID, "server_id", serverID)
+	logger.Info("attaching EVS volume")
 	body := map[string]any{
 		"volumeAttachment": map[string]any{
 			"volumeId": volumeID,
@@ -99,8 +115,10 @@ func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (
 		Attachment attachmentPayload `json:"volumeAttachment"`
 	}
 	if err := s.doJSON(ctx, http.MethodPost, s.compute, s.compute.ServiceURL("servers", serverID, "os-volume_attachments"), body, &resp); err != nil {
+		logger.Error("attach EVS volume request failed", "error", err)
 		return nil, err
 	}
+	logger.Info("EVS volume attach request accepted", "attachment_id", resp.Attachment.ID, "device", resp.Attachment.Device)
 
 	return &backend.Attachment{
 		ID:       resp.Attachment.ID,
@@ -111,8 +129,11 @@ func (s *Service) AttachVolume(ctx context.Context, volumeID, serverID string) (
 }
 
 func (s *Service) DetachVolume(ctx context.Context, volumeID, serverID string) error {
+	logger := s.loggerOrDefault().With("volume_id", volumeID, "server_id", serverID)
+	logger.Info("detaching EVS volume")
 	volume, err := s.GetVolume(ctx, volumeID)
 	if err != nil {
+		logger.Error("get EVS volume before detach failed", "error", err)
 		return err
 	}
 
@@ -121,14 +142,28 @@ func (s *Service) DetachVolume(ctx context.Context, volumeID, serverID string) e
 			continue
 		}
 
-		return s.doJSON(ctx, http.MethodDelete, s.compute, s.compute.ServiceURL("servers", serverID, "os-volume_attachments", attachment.ID), nil, nil)
+		logger = logger.With("attachment_id", attachment.ID, "device", attachment.Device)
+		if err := s.doJSON(ctx, http.MethodDelete, s.compute, s.compute.ServiceURL("servers", serverID, "os-volume_attachments", attachment.ID), nil, nil); err != nil {
+			logger.Error("detach EVS volume request failed", "error", err)
+			return err
+		}
+		logger.Info("waiting for EVS volume attachment to be removed")
+		if err := s.waitForVolumeDetached(ctx, volumeID, serverID); err != nil {
+			logger.Error("EVS volume attachment was not removed", "error", err)
+			return err
+		}
+		logger.Info("EVS volume detached")
+		return nil
 	}
 
+	logger.Info("EVS volume was already detached from server")
 	return nil
 }
 
 func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeBytes int64) (int64, error) {
 	requestedSizeBytes := sizeBytesToGiB(newSizeBytes) * gibibyte
+	logger := s.loggerOrDefault().With("volume_id", volumeID, "requested_bytes", newSizeBytes, "requested_gib", sizeBytesToGiB(newSizeBytes))
+	logger.Info("expanding EVS volume")
 
 	body := map[string]any{
 		"os-extend": map[string]any{
@@ -137,13 +172,17 @@ func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeByte
 	}
 
 	if err := s.doJSON(ctx, http.MethodPost, s.blockStore, s.blockStore.ServiceURL("volumes", volumeID, "action"), body, nil); err != nil {
+		logger.Error("expand EVS volume request failed", "error", err)
 		return 0, err
 	}
+	logger.Info("waiting for EVS volume expansion")
 
 	volume, err := s.waitForExpandedVolume(ctx, volumeID, requestedSizeBytes)
 	if err != nil {
+		logger.Error("EVS volume expansion did not complete", "error", err)
 		return 0, err
 	}
+	logger.Info("EVS volume expanded", "capacity_bytes", volume.SizeBytes, "status", volume.Status)
 
 	return volume.SizeBytes, nil
 }
@@ -157,6 +196,13 @@ func (s *Service) GetVolume(ctx context.Context, volumeID string) (*backend.Volu
 	}
 
 	return resp.Volume.toDomain(), nil
+}
+
+func (s *Service) loggerOrDefault() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default().With("component", "evs-service")
 }
 
 func (s *Service) waitForVolumeStatus(ctx context.Context, volumeID, desired string) (*backend.Volume, error) {
@@ -203,6 +249,53 @@ func (s *Service) waitForExpandedVolume(ctx context.Context, volumeID string, re
 		case <-time.After(3 * time.Second):
 		}
 	}
+}
+
+func (s *Service) waitForVolumeDetached(ctx context.Context, volumeID, serverID string) error {
+	return waitForAttachmentGone(ctx, s.cfg.Timeout, 3*time.Second, volumeID, serverID, s.GetVolume)
+}
+
+func waitForAttachmentGone(
+	ctx context.Context,
+	timeout time.Duration,
+	pollInterval time.Duration,
+	volumeID string,
+	serverID string,
+	getVolume func(context.Context, string) (*backend.Volume, error),
+) error {
+	if pollInterval <= 0 {
+		pollInterval = time.Second
+	}
+	deadline := time.Now().Add(timeout)
+
+	for {
+		volume, err := getVolume(ctx, volumeID)
+		if err != nil {
+			return err
+		}
+		if !hasAttachmentForServer(volume.Attachments, serverID) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for volume %s to detach from server %s", volumeID, serverID)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+func hasAttachmentForServer(attachments []backend.Attachment, serverID string) bool {
+	for _, attachment := range attachments {
+		if attachment.ServerID == serverID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Service) doJSON(ctx context.Context, method string, client *golangsdk.ServiceClient, url string, body any, out any) error {

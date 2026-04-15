@@ -22,6 +22,8 @@
 - Added node-side device path resolution for EVS publish paths, including retry and `/dev/disk/by-id` lookup.
 - Updated the node DaemonSet to mount the host kubelet root so raw block publish targets under `/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices` are visible to the node plugin.
 - Added structured JSON startup and node-path logs for CSI server lifecycle, node identity resolution, and EVS device path resolution.
+- Added structured controller and EVS cloud-service logs for create, delete, attach, detach, and expand flows.
+- Hardened EVS detach so controller unpublish waits until the volume attachment is removed from the cloud volume state.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
@@ -35,10 +37,8 @@
 ## Planned
 
 - Add functional tests for end-to-end provisioning, attach/detach, mount, and expansion flows against a real or ephemeral test environment.
-- Add structured logs around controller CSI calls and cloud API operations.
 - Add release metadata to the binary and container image, including version, commit, and build date.
 - Add Helm chart or production Kustomize overlays for installable EVS deployments.
 - Document required IAM/API permissions for EVS, ECS attach/detach, and Kubernetes node metadata access.
-- Harden detach handling so the controller waits until EVS confirms attachment removal.
 - Validate and document all supported EVS `StorageClass` parameters.
 - Add snapshot support if the target EVS API surface exposes stable snapshot semantics through the SDK-backed clients.
