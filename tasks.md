@@ -24,6 +24,8 @@
 - Added structured JSON startup and node-path logs for CSI server lifecycle, node identity resolution, and EVS device path resolution.
 - Added structured controller and EVS cloud-service logs for create, delete, attach, detach, and expand flows.
 - Hardened EVS detach so controller unpublish waits until the volume attachment is removed from the cloud volume state.
+- Validated and documented supported EVS `StorageClass` parameters, including explicit rejection of unknown keys.
+- Added release metadata to the binary and container image, including version, commit, build date, startup logs, and OCI image labels.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
@@ -37,8 +39,6 @@
 ## Planned
 
 - Add functional tests for end-to-end provisioning, attach/detach, mount, and expansion flows against a real or ephemeral test environment.
-- Add release metadata to the binary and container image, including version, commit, and build date.
 - Add Helm chart or production Kustomize overlays for installable EVS deployments.
 - Document required IAM/API permissions for EVS, ECS attach/detach, and Kubernetes node metadata access.
-- Validate and document all supported EVS `StorageClass` parameters.
 - Add snapshot support if the target EVS API surface exposes stable snapshot semantics through the SDK-backed clients.

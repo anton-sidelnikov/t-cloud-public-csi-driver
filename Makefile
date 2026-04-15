@@ -9,6 +9,11 @@ GOCACHE_DIR := $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
 IMAGE ?= ghcr.io/example/$(PROJECT_NAME):dev
 KUSTOMIZE_DIR := ./deploy/kubernetes
+VERSION ?= dev
+COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION_PACKAGE := t-cloud-public-csi-driver/internal/version
+LDFLAGS := -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).Date=$(BUILD_DATE)
 
 export GOCACHE := $(GOCACHE_DIR)
 export GOLANGCI_LINT_CACHE := $(GOLANGCI_LINT_CACHE_DIR)
@@ -62,7 +67,7 @@ lint: dirs
 
 .PHONY: build
 build: dirs
-	@go build -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
+	@go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
 
 .PHONY: run
 run: dirs
@@ -77,7 +82,11 @@ check: fmt-check vet test
 
 .PHONY: image
 image:
-	@docker build -t $(IMAGE) .
+	@docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE) .
 
 .PHONY: manifests
 manifests:

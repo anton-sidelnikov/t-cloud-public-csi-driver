@@ -69,6 +69,15 @@ make manifests
 make image
 ```
 
+Build metadata can be overridden for local builds and images:
+
+```bash
+make build VERSION=v0.1.0 COMMIT=$(git rev-parse --short=12 HEAD)
+make image IMAGE=ghcr.io/example/tcloud-public-csi-driver:v0.1.0 VERSION=v0.1.0
+```
+
+The binary logs `version`, `commit`, and `build_date` on startup. Container images also include matching OCI labels.
+
 ## CI
 
 GitHub Actions workflow definitions live in [.github/workflows](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/.github/workflows).
@@ -116,6 +125,36 @@ They cover:
 - raw block PVC + pod validation
 - online expansion checks
 - reclaim policy checks for `Delete` and `Retain`
+
+## EVS StorageClass Parameters
+
+The EVS backend validates `StorageClass.parameters` explicitly. Unsupported keys are rejected during `CreateVolume` so typos fail early instead of being silently ignored.
+
+Supported parameters:
+
+- `volumeType`: EVS volume type, for example `SSD`.
+- `availabilityZone`: EVS availability zone override. If omitted, the driver uses `OS_AVAILABILITY_ZONE`.
+- `description`: optional EVS volume description.
+- `csi.storage.k8s.io/fstype`: accepted for Kubernetes CSI compatibility. Filesystem formatting is still driven by the CSI volume capability on the node side.
+- `metadata.<key>`: optional EVS metadata. The `metadata.` prefix is stripped before sending metadata to EVS.
+
+Example:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: tcloud-public-evs-ssd
+provisioner: csi.evs.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  volumeType: SSD
+  availabilityZone: eu-de-01
+  description: Kubernetes EVS volume
+  metadata.environment: dev
+```
 
 ## Configuration
 

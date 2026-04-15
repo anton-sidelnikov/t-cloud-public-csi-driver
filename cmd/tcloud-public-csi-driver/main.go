@@ -9,11 +9,14 @@ import (
 
 	"t-cloud-public-csi-driver/internal/config"
 	"t-cloud-public-csi-driver/internal/driver"
+	"t-cloud-public-csi-driver/internal/version"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
+	build := version.Get()
+	logger.Info("starting T Cloud Public CSI driver", "version", build.Version, "commit", build.Commit, "build_date", build.Date)
 
 	cfg, err := config.FromEnv()
 	if err != nil {
