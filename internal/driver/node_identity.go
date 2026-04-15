@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -24,15 +25,20 @@ type nodeIDResolver interface {
 
 type staticNodeIDResolver struct {
 	nodeID string
+	logger *slog.Logger
 }
 
 func (r *staticNodeIDResolver) Resolve() (string, error) {
+	if r.logger != nil {
+		r.logger.Info("using static node id", "node_id", r.nodeID)
+	}
 	return r.nodeID, nil
 }
 
 type kubeNodeIDResolver struct {
 	nodeName string
 	client   kubernetes.Interface
+	logger   *slog.Logger
 
 	once      sync.Once
 	cachedID  string
@@ -40,18 +46,21 @@ type kubeNodeIDResolver struct {
 }
 
 func newNodeIDResolver(cfg config.Config) nodeIDResolver {
+	logger := slog.Default().With("component", "node-id-resolver", "configured_node_id", cfg.NodeID)
 	if isUUID(cfg.NodeID) {
-		return &staticNodeIDResolver{nodeID: cfg.NodeID}
+		return &staticNodeIDResolver{nodeID: cfg.NodeID, logger: logger.With("source", "configured_uuid")}
 	}
 
 	client, err := newInClusterKubeClient()
 	if err != nil {
-		return &staticNodeIDResolver{nodeID: cfg.NodeID}
+		logger.Warn("failed to create in-cluster kubernetes client, falling back to configured node id", "error", err)
+		return &staticNodeIDResolver{nodeID: cfg.NodeID, logger: logger.With("source", "configured_fallback")}
 	}
 
 	return &kubeNodeIDResolver{
 		nodeName: cfg.NodeID,
 		client:   client,
+		logger:   logger.With("source", "kubernetes_node"),
 	}
 }
 
@@ -85,6 +94,15 @@ func (r *kubeNodeIDResolver) resolveOnce() (string, error) {
 	instanceID, err := providerInstanceID(node)
 	if err != nil {
 		return "", err
+	}
+	if r.logger != nil {
+		r.logger.Info(
+			"resolved node instance id from kubernetes node",
+			"kubernetes_node", r.nodeName,
+			"provider_id", node.Spec.ProviderID,
+			"system_uuid", node.Status.NodeInfo.SystemUUID,
+			"instance_id", instanceID,
+		)
 	}
 
 	return instanceID, nil

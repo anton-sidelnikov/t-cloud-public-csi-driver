@@ -6,10 +6,12 @@ CMD_PATH := ./cmd/tcloud-public-csi-driver
 BIN_DIR := ./bin
 DIST_DIR := ./dist
 GOCACHE_DIR := $(CURDIR)/.cache/go-build
+GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
 IMAGE ?= ghcr.io/example/$(PROJECT_NAME):dev
 KUSTOMIZE_DIR := ./deploy/kubernetes
 
 export GOCACHE := $(GOCACHE_DIR)
+export GOLANGCI_LINT_CACHE := $(GOLANGCI_LINT_CACHE_DIR)
 export CGO_ENABLED ?= 0
 
 .PHONY: help
@@ -31,7 +33,7 @@ help:
 
 .PHONY: dirs
 dirs:
-	@mkdir -p $(BIN_DIR) $(DIST_DIR) $(GOCACHE_DIR)
+	@mkdir -p $(BIN_DIR) $(DIST_DIR) $(GOCACHE_DIR) $(GOLANGCI_LINT_CACHE_DIR)
 
 .PHONY: fmt
 fmt:
@@ -55,7 +57,7 @@ vet: dirs
 	@go vet ./...
 
 .PHONY: lint
-lint:
+lint: dirs
 	@golangci-lint run ./...
 
 .PHONY: build

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,7 @@ type nodeServer struct {
 	driver         backend.Driver
 	nodeIDResolver nodeIDResolver
 	deviceResolver devicePathResolver
+	logger         *slog.Logger
 	mounter        nodeMounter
 	deviceManager  nodeDeviceManager
 }
@@ -28,6 +30,7 @@ func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 		driver:         driver,
 		nodeIDResolver: newNodeIDResolver(cfg),
 		deviceResolver: newDevicePathResolver(cfg),
+		logger:         slog.Default().With("component", "node", "backend", cfg.Backend),
 		mounter:        &osMounter{},
 		deviceManager:  newFilesystemManager(runner),
 	}
@@ -55,6 +58,7 @@ func (s *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "resolve device path: %v", err)
 	}
+	s.loggerOrDefault().Info("resolved staging device path", "volume_id", req.GetVolumeId(), "reported_path", req.GetPublishContext()[s.driver.DevicePathKey()], "resolved_path", devicePath)
 
 	stagingPath := req.GetStagingTargetPath()
 	if err := s.mounter.EnsureDir(stagingPath); err != nil {
@@ -121,10 +125,12 @@ func (s *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 		if devicePath == "" {
 			return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", s.driver.DevicePathKey())
 		}
+		reportedPath := devicePath
 		devicePath, err = s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "resolve device path: %v", err)
 		}
+		s.loggerOrDefault().Info("resolved block device path", "volume_id", req.GetVolumeId(), "target_path", targetPath, "reported_path", reportedPath, "resolved_path", devicePath)
 		if err := s.mounter.EnsureFile(targetPath); err != nil {
 			return nil, status.Errorf(codes.Internal, "ensure block target: %v", err)
 		}
@@ -168,6 +174,7 @@ func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "resolve node instance id: %v", err)
 	}
+	s.loggerOrDefault().Info("resolved node id", "node_id", nodeID, "topology_key", s.driver.TopologyKey(), "availability_zone", s.cfg.AvailabilityZone)
 
 	return &csi.NodeGetInfoResponse{
 		NodeId:            nodeID,
@@ -178,6 +185,13 @@ func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi
 			},
 		},
 	}, nil
+}
+
+func (s *nodeServer) loggerOrDefault() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default().With("component", "node")
 }
 
 func (s *nodeServer) NodeGetCapabilities(context.Context, *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
