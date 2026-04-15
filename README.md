@@ -90,6 +90,46 @@ The current CI pipeline runs:
 - Docker image build on pull requests
 - Docker image build and push to GHCR on pushes to `main` and version tags
 
+## Functional Tests
+
+Functional EVS tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
+
+The infrastructure scaffold lives in [test/functional/terraform](./test/functional/terraform). It creates a VPC, subnet, CCE cluster, worker nodes, and a generated kubeconfig output. Authentication is read from the same `OS_*` environment variables used by the CSI driver:
+
+```bash
+export OS_AUTH_URL=https://iam.example.com/v3
+export OS_REGION=eu-de
+export OS_AVAILABILITY_ZONE=eu-de-01
+export OS_DOMAIN_NAME=Default
+export OS_USERNAME=replace-me
+export OS_PASSWORD=replace-me
+export OS_PROJECT_ID=replace-me
+```
+
+Provision infrastructure. The Makefile maps `OS_*` into Terraform `TF_VAR_*` values automatically:
+
+```bash
+make functional-infra-init
+make functional-infra-up
+make functional-kubeconfig
+```
+
+Run the functional test scaffold:
+
+```bash
+CSI_TEST_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:<tag> make test-functional
+```
+
+Destroy infrastructure:
+
+```bash
+make functional-infra-down
+```
+
+Terraform variables can still be overridden explicitly with `TF_VAR_*` when needed, for example `TF_VAR_node_count=3 make functional-infra-up`.
+
+The current Go functional package is only a scaffold. The next step is to add tests that install the CSI manifests into the generated cluster, create the cloud secret from `OS_*`, and run filesystem, raw block, expansion, and reclaim-policy scenarios.
+
 ## Kubernetes Manifests
 
 Baseline manifests live in [deploy/kubernetes](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/deploy/kubernetes).

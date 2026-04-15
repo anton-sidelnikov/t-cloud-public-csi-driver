@@ -29,6 +29,7 @@
 - Hardened the EVS node path based on manual cluster testing, including block-volume publish idempotency coverage and device discovery checks.
 - Documented EVS assumptions, limitations, and operational checks from the manual test runs.
 - Expanded unit coverage around EVS error mapping, device discovery, resize behavior, and idempotent node/controller operations.
+- Added an OpenTelekomCloud Terraform scaffold for ephemeral functional-test infrastructure: VPC, subnet, CCE cluster, worker nodes, generated kubeconfig, Makefile targets, and functional test package stub.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
@@ -40,6 +41,7 @@
 ## Planned
 
 - Add functional tests for end-to-end provisioning, attach/detach, mount, and expansion flows against a real or ephemeral test environment.
+- Add a GitHub Actions workflow_dispatch job that provisions functional-test infrastructure, runs EVS functional tests, collects logs, and destroys infrastructure in an always-run cleanup step.
 - Add Helm chart or production Kustomize overlays for installable EVS deployments.
 - Document required IAM/API permissions for EVS, ECS attach/detach, and Kubernetes node metadata access.
 - Add snapshot support if the target EVS API surface exposes stable snapshot semantics through the SDK-backed clients.

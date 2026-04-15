@@ -9,11 +9,23 @@ GOCACHE_DIR := $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
 IMAGE ?= ghcr.io/example/$(PROJECT_NAME):dev
 KUSTOMIZE_DIR := ./deploy/kubernetes
+FUNCTIONAL_TF_DIR := ./test/functional/terraform
+FUNCTIONAL_CACHE_DIR := $(CURDIR)/.cache/functional
+FUNCTIONAL_KUBECONFIG := $(FUNCTIONAL_CACHE_DIR)/kubeconfig
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 VERSION_PACKAGE := t-cloud-public-csi-driver/internal/version
 LDFLAGS := -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).Date=$(BUILD_DATE)
+FUNCTIONAL_TF_ENV := \
+	TF_VAR_auth_url="$${TF_VAR_auth_url:-$${OS_AUTH_URL}}" \
+	TF_VAR_region="$${TF_VAR_region:-$${OS_REGION}}" \
+	TF_VAR_availability_zone="$${TF_VAR_availability_zone:-$${OS_AVAILABILITY_ZONE}}" \
+	TF_VAR_domain_name="$${TF_VAR_domain_name:-$${OS_DOMAIN_NAME}}" \
+	TF_VAR_user_name="$${TF_VAR_user_name:-$${OS_USERNAME}}" \
+	TF_VAR_password="$${TF_VAR_password:-$${OS_PASSWORD}}" \
+	TF_VAR_project_id="$${TF_VAR_project_id:-$${OS_PROJECT_ID}}" \
+	TF_VAR_project_name="$${TF_VAR_project_name:-$${OS_PROJECT_NAME}}"
 
 export GOCACHE := $(GOCACHE_DIR)
 export GOLANGCI_LINT_CACHE := $(GOLANGCI_LINT_CACHE_DIR)
@@ -31,6 +43,12 @@ help:
 	@echo "  make lint             Run golangci-lint"
 	@echo "  make check            Run fmt-check, vet, and test"
 	@echo "  make image            Build container image"
+	@echo "  make functional-infra-init  Initialize functional-test Terraform"
+	@echo "  make functional-infra-plan  Plan functional-test infrastructure"
+	@echo "  make functional-infra-up    Provision functional-test infrastructure"
+	@echo "  make functional-kubeconfig  Write functional-test kubeconfig"
+	@echo "  make test-functional        Run functional tests"
+	@echo "  make functional-infra-down  Destroy functional-test infrastructure"
 	@echo "  make manifests        Print rendered Kubernetes manifests"
 	@echo "  make install          Apply Kubernetes manifests"
 	@echo "  make uninstall        Delete Kubernetes manifests"
@@ -38,7 +56,7 @@ help:
 
 .PHONY: dirs
 dirs:
-	@mkdir -p $(BIN_DIR) $(DIST_DIR) $(GOCACHE_DIR) $(GOLANGCI_LINT_CACHE_DIR)
+	@mkdir -p $(BIN_DIR) $(DIST_DIR) $(GOCACHE_DIR) $(GOLANGCI_LINT_CACHE_DIR) $(FUNCTIONAL_CACHE_DIR)
 
 .PHONY: fmt
 fmt:
@@ -87,6 +105,32 @@ image:
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE) .
+
+.PHONY: functional-infra-init
+functional-infra-init:
+	@$(FUNCTIONAL_TF_ENV) terraform -chdir=$(FUNCTIONAL_TF_DIR) init
+
+.PHONY: functional-infra-plan
+functional-infra-plan:
+	@$(FUNCTIONAL_TF_ENV) terraform -chdir=$(FUNCTIONAL_TF_DIR) plan
+
+.PHONY: functional-infra-up
+functional-infra-up:
+	@$(FUNCTIONAL_TF_ENV) terraform -chdir=$(FUNCTIONAL_TF_DIR) apply -auto-approve
+
+.PHONY: functional-kubeconfig
+functional-kubeconfig: dirs
+	@$(FUNCTIONAL_TF_ENV) terraform -chdir=$(FUNCTIONAL_TF_DIR) output -raw kubeconfig > $(FUNCTIONAL_KUBECONFIG)
+	@chmod 0600 $(FUNCTIONAL_KUBECONFIG)
+	@echo "$(FUNCTIONAL_KUBECONFIG)"
+
+.PHONY: test-functional
+test-functional:
+	@KUBECONFIG=$${KUBECONFIG:-$(FUNCTIONAL_KUBECONFIG)} go test -tags=functional ./test/functional/evs -v -timeout 90m
+
+.PHONY: functional-infra-down
+functional-infra-down:
+	@$(FUNCTIONAL_TF_ENV) terraform -chdir=$(FUNCTIONAL_TF_DIR) destroy -auto-approve
 
 .PHONY: manifests
 manifests:
