@@ -26,15 +26,16 @@
 - Hardened EVS detach so controller unpublish waits until the volume attachment is removed from the cloud volume state.
 - Validated and documented supported EVS `StorageClass` parameters, including explicit rejection of unknown keys.
 - Added release metadata to the binary and container image, including version, commit, build date, startup logs, and OCI image labels.
+- Hardened the EVS node path based on manual cluster testing, including block-volume publish idempotency coverage and device discovery checks.
+- Documented EVS assumptions, limitations, and operational checks from the manual test runs.
+- Expanded unit coverage around EVS error mapping, device discovery, resize behavior, and idempotent node/controller operations.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
 
 ## In Progress
 
-- Hardening the EVS node path based on manual cluster testing, especially block-volume publish idempotency and device discovery.
-- Documenting EVS assumptions, limitations, and operational checks from the manual test runs.
-- Expanding unit coverage around EVS error mapping, device discovery, resize behavior, and idempotent node/controller operations.
+- No active EVS implementation tasks.
 
 ## Planned
 

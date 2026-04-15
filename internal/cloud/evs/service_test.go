@@ -138,3 +138,15 @@ func TestWaitForAttachmentGonePropagatesGetVolumeError(t *testing.T) {
 		t.Fatal("expected get volume error")
 	}
 }
+
+func TestWaitForAttachmentGoneHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := waitForAttachmentGone(ctx, time.Second, time.Nanosecond, "vol-1", "srv-1", func(context.Context, string) (*backend.Volume, error) {
+		return &backend.Volume{ID: "vol-1", Attachments: []backend.Attachment{{ID: "att-1", ServerID: "srv-1"}}}, nil
+	})
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+}

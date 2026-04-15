@@ -68,3 +68,14 @@ func TestOSDevicePathResolverTimesOut(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+func TestOSDevicePathResolverHonorsContextCancellation(t *testing.T) {
+	resolver := &osDevicePathResolver{timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := resolver.ResolveDevicePath(ctx, "vol-1", "/dev/does-not-exist")
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+}

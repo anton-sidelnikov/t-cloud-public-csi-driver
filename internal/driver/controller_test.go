@@ -170,6 +170,40 @@ func TestControllerPublishVolumeReturnsPublishContext(t *testing.T) {
 	}
 }
 
+func TestControllerPublishVolumePropagatesServiceErrors(t *testing.T) {
+	service := &fakeControllerService{attachErr: fmt.Errorf("boom")}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	_, err := server.ControllerPublishVolume(context.Background(), &csi.ControllerPublishVolumeRequest{
+		VolumeId: "vol-1",
+		NodeId:   "node-1",
+	})
+	assertCode(t, err, codes.Internal)
+}
+
+func TestControllerUnpublishVolumePassesIdentifiers(t *testing.T) {
+	service := &fakeControllerService{}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	_, err := server.ControllerUnpublishVolume(context.Background(), &csi.ControllerUnpublishVolumeRequest{
+		VolumeId: "vol-1",
+		NodeId:   "node-1",
+	})
+	if err != nil {
+		t.Fatalf("ControllerUnpublishVolume returned error: %v", err)
+	}
+	if service.detachVolumeID != "vol-1" || service.detachNodeID != "node-1" {
+		t.Fatalf("unexpected detach request: volume=%q node=%q", service.detachVolumeID, service.detachNodeID)
+	}
+}
+
+func TestControllerUnpublishVolumeRequiresIdentifiers(t *testing.T) {
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
+
+	_, err := server.ControllerUnpublishVolume(context.Background(), &csi.ControllerUnpublishVolumeRequest{VolumeId: "vol-1"})
+	assertCode(t, err, codes.InvalidArgument)
+}
+
 func TestControllerExpandVolumePassesCapacity(t *testing.T) {
 	service := &fakeControllerService{expandRes: 20}
 	server := newControllerServer(config.Config{}, backendevs.New(), service)
@@ -190,6 +224,18 @@ func TestControllerExpandVolumePassesCapacity(t *testing.T) {
 	if !resp.NodeExpansionRequired {
 		t.Fatal("expected node expansion to be required")
 	}
+}
+
+func TestControllerExpandVolumeRejectsInvalidCapacity(t *testing.T) {
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
+
+	_, err := server.ControllerExpandVolume(context.Background(), &csi.ControllerExpandVolumeRequest{
+		VolumeId: "vol-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 0,
+		},
+	})
+	assertCode(t, err, codes.InvalidArgument)
 }
 
 func TestValidateVolumeCapabilitiesRejectsUnsupportedMode(t *testing.T) {
@@ -221,6 +267,13 @@ func TestDeleteVolumePropagatesServiceErrors(t *testing.T) {
 
 	_, err := server.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "vol-1"})
 	assertCode(t, err, codes.Internal)
+}
+
+func TestDeleteVolumeRequiresVolumeID(t *testing.T) {
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
+
+	_, err := server.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{})
+	assertCode(t, err, codes.InvalidArgument)
 }
 
 func TestNodeGetInfoUsesConfig(t *testing.T) {

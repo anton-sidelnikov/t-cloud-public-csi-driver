@@ -13,6 +13,8 @@ Prerequisites:
 - the CSI controller and node manifests from `deploy/kubernetes` are already running
 - the driver image in those manifests points to a real published image
 - cloud credentials are valid and the target project has EVS quota available
+- Kubernetes nodes expose the ECS instance UUID through `spec.providerID` or `status.nodeInfo.systemUUID`
+- the node DaemonSet mounts the full host `/var/lib/kubelet` with bidirectional mount propagation
 
 ## Covered Scenarios
 
@@ -50,6 +52,13 @@ kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'dd if=/dev/zero
 kubectl -n tcloud-public-csi-manual exec evs-block-pod -- sh -c 'dd if=/dev/xvdc bs=512 count=8 | hexdump -C'
 ```
 
+If raw block publish fails, inspect node-side device resolution logs:
+
+```bash
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-node -c tcloud-public-csi-driver --tail=300 | grep -E 'node-device-resolver|resolved block device path'
+kubectl -n tcloud-public-csi-manual describe pod evs-block-pod
+```
+
 ## Expansion Test
 
 Objects:
@@ -61,6 +70,13 @@ Initial check:
 
 ```bash
 kubectl -n tcloud-public-csi-manual exec evs-expand-pod -- df -h /data
+```
+
+If expansion fails, inspect controller and node logs:
+
+```bash
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=300 | grep -E 'expand|EVS volume expansion'
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-node -c tcloud-public-csi-driver --tail=300 | grep -E 'NodeExpand|resize filesystem|resolved staging device path'
 ```
 
 Expand the claim:

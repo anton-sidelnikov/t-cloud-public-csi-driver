@@ -114,8 +114,28 @@ Before applying, replace the placeholder image `ghcr.io/example/tcloud-public-cs
 Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
-- the node plugin runs privileged and mounts `/dev`, `/sys`, and kubelet plugin paths
+- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
 - snapshot sidecars are not included yet because snapshot APIs are not implemented in the driver
+
+## EVS Operational Assumptions
+
+The EVS backend currently assumes:
+
+- Kubernetes node identity can be resolved to the ECS instance UUID. The node plugin first uses `Node.spec.providerID` when it contains a UUID and falls back to `Node.status.nodeInfo.systemUUID`.
+- `CSI_NODE_ID` is set from `spec.nodeName` in the node DaemonSet and is used only as the Kubernetes `Node` lookup key unless it is already a UUID.
+- EVS volumes are single-node block devices. The driver accepts CSI single-node access modes and rejects multi-node writer modes.
+- EVS volumes must be provisioned in an availability zone compatible with the node selected by Kubernetes. The example StorageClasses use `WaitForFirstConsumer`.
+- Raw block volumes require the node plugin to see host kubelet block-device publish paths under `/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices`.
+- Online filesystem expansion requires controller expansion followed by node filesystem expansion. The controller treats EVS states `available` and `in-use` as valid completed expansion states when the size is updated.
+
+Useful checks:
+
+```bash
+kubectl get node <node-name> -o jsonpath='{.spec.providerID}{"\n"}'
+kubectl get node <node-name> -o jsonpath='{.status.nodeInfo.systemUUID}{"\n"}'
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-node -c tcloud-public-csi-driver --tail=200
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=200
+```
 
 Manual EVS validation manifests live in [deploy/manual/evs](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/deploy/manual/evs).
 
