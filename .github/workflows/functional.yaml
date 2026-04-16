@@ -37,6 +37,7 @@ jobs:
       OS_PROJECT_ID: ${{ secrets.OS_PROJECT_ID }}
       OS_PROJECT_NAME: ${{ secrets.OS_PROJECT_NAME }}
       TF_VAR_node_count: ${{ inputs.node_count }}
+      TF_VAR_kubeconfig_server: external
       CSI_TEST_KEEP_RESOURCES: ${{ inputs.keep_resources }}
       FUNCTIONAL_IMAGE: ghcr.io/${{ github.repository }}:functional-${{ github.run_id }}-${{ github.sha }}
     steps:
@@ -65,9 +66,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push functional image
-        run: |
-          make functional-image
-          make functional-image-push
+        run: make functional-image-push
 
       - name: Provision functional infrastructure
         run: |

@@ -7,6 +7,24 @@ locals {
   cluster_name = "${var.name_prefix}-cluster"
 }
 
+resource "opentelekomcloud_vpc_eip_v1" "cluster_api" {
+  count = var.cluster_public_access ? 1 : 0
+
+  publicip {
+    type = var.cluster_api_eip_type
+    name = "${var.name_prefix}-cce-api"
+  }
+
+  bandwidth {
+    name        = var.cluster_api_bandwidth_name
+    size        = var.cluster_api_bandwidth_size
+    share_type  = var.cluster_api_bandwidth_share_type
+    charge_mode = var.cluster_api_bandwidth_charge_mode
+  }
+
+  tags = local.common_tags
+}
+
 resource "opentelekomcloud_vpc_v1" "e2e" {
   name = "${var.name_prefix}-vpc"
   cidr = var.vpc_cidr
@@ -42,6 +60,7 @@ resource "opentelekomcloud_cce_cluster_v3" "e2e" {
   api_access_trustlist    = length(var.cluster_api_access_trustlist) > 0 ? var.cluster_api_access_trustlist : null
   timezone                = "UTC"
   billing_mode            = 0
+  eip                     = var.cluster_public_access ? opentelekomcloud_vpc_eip_v1.cluster_api[0].publicip[0].ip_address : null
 
   delete_all_storage = "true"
   delete_all_network = "true"

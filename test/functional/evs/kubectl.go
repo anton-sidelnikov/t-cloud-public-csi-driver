@@ -13,51 +13,104 @@ import (
 
 type kubectl struct {
 	kubeconfig string
+	insecure   bool
 }
 
 func newKubectl(cfg testConfig) kubectl {
-	return kubectl{kubeconfig: cfg.kubeconfig}
+	return kubectl{kubeconfig: cfg.kubeconfig, insecure: cfg.insecureTLS}
 }
 
 func (k kubectl) run(t *testing.T, args ...string) string {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", k.kubeconfig}, args...)...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("kubectl %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	output, err := k.runCommand(args...)
+	if err == nil {
+		return output
 	}
-
-	return string(output)
+	if k.shouldRetryInsecure(err, output) {
+		t.Log("kubectl TLS verification failed, retrying with --insecure-skip-tls-verify=true")
+		k.insecure = true
+		output, err = k.runCommand(args...)
+		if err == nil {
+			return output
+		}
+	}
+	t.Fatalf("kubectl %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(output))
+	return ""
 }
 
 func (k kubectl) runInput(t *testing.T, input []byte, args ...string) string {
 	t.Helper()
 
+	output, err := k.runCommandInput(input, args...)
+	if err == nil {
+		return output
+	}
+	if k.shouldRetryInsecure(err, output) {
+		t.Log("kubectl TLS verification failed, retrying with --insecure-skip-tls-verify=true")
+		k.insecure = true
+		output, err = k.runCommandInput(input, args...)
+		if err == nil {
+			return output
+		}
+	}
+	t.Fatalf("kubectl %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(output))
+	return ""
+}
+
+func (k kubectl) runCommand(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "kubectl", append([]string{"--kubeconfig", k.kubeconfig}, args...)...)
+	cmd := exec.CommandContext(ctx, "kubectl", k.commandArgs(args...)...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func (k kubectl) runCommandInput(input []byte, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", k.commandArgs(args...)...)
 	cmd.Stdin = bytes.NewReader(input)
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("kubectl %s failed: %v\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
+	return string(output), err
+}
 
-	return string(output)
+func (k kubectl) commandArgs(args ...string) []string {
+	commandArgs := []string{"--kubeconfig", k.kubeconfig}
+	if k.insecure {
+		commandArgs = append(commandArgs, "--insecure-skip-tls-verify=true")
+	}
+	commandArgs = append(commandArgs, args...)
+	return commandArgs
+}
+
+func (k kubectl) shouldRetryInsecure(err error, output string) bool {
+	if err == nil || k.insecure {
+		return false
+	}
+	return strings.Contains(output, "x509: certificate signed by unknown authority")
 }
 
 func (k kubectl) applyKustomize(t *testing.T, path string) {
 	t.Helper()
-	k.run(t, "apply", "-k", path)
+	k.run(t, "apply", "--validate=false", "-k", path)
 }
 
 func (k kubectl) deleteKustomize(t *testing.T, path string) {
 	t.Helper()
-	k.run(t, "delete", "-k", path, "--ignore-not-found=true")
+	k.run(t, "delete", "--ignore-not-found=true", "-k", path)
+}
+
+func (k kubectl) applyManifest(t *testing.T, manifest string) {
+	t.Helper()
+	k.runInput(t, []byte(manifest), "apply", "--validate=false", "-f", "-")
+}
+
+func (k kubectl) deleteManifest(t *testing.T, manifest string) {
+	t.Helper()
+	k.runInput(t, []byte(manifest), "delete", "--ignore-not-found=true", "-f", "-")
 }
 
 func (k kubectl) createOrUpdateCloudSecret(t *testing.T, cfg testConfig) {
@@ -134,6 +187,90 @@ func (k kubectl) collectDriverDebug(t *testing.T) {
 		}
 		t.Logf("kubectl %s\n%s", strings.Join(args, " "), strings.TrimSpace(string(output)))
 	}
+}
+
+func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
+	t.Helper()
+
+	commands := [][]string{
+		{"-n", namespace, "get", "all", "-o", "wide"},
+		{"-n", namespace, "get", "pvc,pv", "-o", "wide"},
+	}
+
+	for _, args := range commands {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		cmd := exec.CommandContext(ctx, "kubectl", append(k.commandArgs(), args...)...)
+		output, err := cmd.CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Logf("debug kubectl %s failed: %v", strings.Join(args, " "), err)
+			continue
+		}
+		t.Logf("kubectl %s\n%s", strings.Join(args, " "), strings.TrimSpace(string(output)))
+	}
+}
+
+func (k kubectl) waitForNamespaceDeletion(t *testing.T, namespace string) {
+	t.Helper()
+	k.run(t, "wait", "--for=delete", "namespace/"+namespace, "--timeout=10m")
+}
+
+func (k kubectl) waitForPVCBound(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=15m")
+}
+
+func (k kubectl) waitForPodReady(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=15m")
+}
+
+func (k kubectl) getNamespacedJSONPath(t *testing.T, namespace, resource, jsonpath string) string {
+	t.Helper()
+	return strings.TrimSpace(k.run(t, "-n", namespace, "get", resource, "-o", "jsonpath="+jsonpath))
+}
+
+func (k kubectl) execInPod(t *testing.T, namespace, pod string, command ...string) string {
+	t.Helper()
+
+	args := []string{"-n", namespace, "exec", pod, "--"}
+	args = append(args, command...)
+	return k.run(t, args...)
+}
+
+func (k kubectl) createNamespace(t *testing.T, namespace string) {
+	t.Helper()
+
+	manifest := `apiVersion: v1
+kind: Namespace
+metadata:
+  name: ` + namespace + "\n"
+	k.applyManifest(t, manifest)
+}
+
+func (k kubectl) deleteNamespace(t *testing.T, namespace string) {
+	t.Helper()
+
+	manifest := `apiVersion: v1
+kind: Namespace
+metadata:
+  name: ` + namespace + "\n"
+	k.deleteManifest(t, manifest)
+}
+
+func testNamespace(t *testing.T) string {
+	t.Helper()
+
+	name := strings.ToLower(t.Name())
+	name = strings.ReplaceAll(name, "/", "-")
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.Trim(name, "-")
+	if len(name) > 40 {
+		name = name[:40]
+	}
+
+	return "tcloud-csi-e2e-" + name
 }
 
 func (k kubectl) describeResource(t *testing.T, resourceType, name string) {

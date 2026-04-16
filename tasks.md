@@ -32,8 +32,12 @@
 - Added an OpenTelekomCloud Terraform scaffold for ephemeral functional-test infrastructure: VPC, subnet, CCE cluster, worker nodes, generated kubeconfig, Makefile targets, and functional test package stub.
 - Added functional-test image build and push targets so tests can deploy a driver image built from the current checkout.
 - Added the first real functional test: bootstrap the CSI driver into an ephemeral CCE cluster, create the cloud secret from `OS_*`, patch the test image, wait for rollout, and verify `CSIDriver` registration.
+- Added the first EVS lifecycle functional test: filesystem PVC provisioning, pod mount, write/read verification, and namespace-scoped cleanup in the ephemeral CCE environment.
+- Changed node identity resolution to rely on Kubernetes `Node.status.nodeInfo.systemUUID` as the canonical ECS instance UUID, avoiding incorrect `spec.providerID` values returned by CCE.
 - Added a separate manual GitHub Actions workflow for functional tests: build/push image, provision ephemeral infrastructure, run tests, collect diagnostics, and destroy infrastructure.
+- Added a PR-comment-triggered functional workflow for same-repository PR branches. Maintainers can comment `run functional`, and the workflow posts start and result comments back to the PR.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
+- Adjusted the functional-test kubeconfig to prefer the direct public CCE endpoint and disabled schema validation for bootstrap `kubectl apply -k` and `kubectl delete -k`.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.
 - Added unit tests for config parsing, controller request handling, node volume flows, node info exposure, and EVS helper logic.
 
@@ -43,7 +47,7 @@
 
 ## Planned
 
-- Add EVS lifecycle functional tests for end-to-end provisioning, attach/detach, mount, raw block, expansion, and reclaim policy flows against the ephemeral test environment.
+- Extend EVS lifecycle functional tests with raw block, online expansion, and reclaim-policy scenarios against the ephemeral test environment.
 - Add Helm chart or production Kustomize overlays for installable EVS deployments.
 - Document required IAM/API permissions for EVS, ECS attach/detach, and Kubernetes node metadata access.
 - Add snapshot support if the target EVS API surface exposes stable snapshot semantics through the SDK-backed clients.

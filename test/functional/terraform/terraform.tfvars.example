@@ -23,3 +23,9 @@ subnet_gateway_ip = "10.42.1.1"
 # Restrict API access in real CI. Example:
 # cluster_api_access_trustlist = ["203.0.113.10/32"]
 cluster_api_access_trustlist = []
+cluster_public_access        = true
+cluster_api_eip_type         = "5_bgp"
+cluster_api_bandwidth_name   = "tcloud-csi-e2e-cce-api"
+cluster_api_bandwidth_size   = 100
+cluster_api_bandwidth_share_type = "PER"
+cluster_api_bandwidth_charge_mode = "traffic"

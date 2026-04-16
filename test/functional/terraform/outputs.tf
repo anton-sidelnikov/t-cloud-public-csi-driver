@@ -1,42 +1,36 @@
+data "opentelekomcloud_cce_cluster_kubeconfig_v3" "e2e" {
+  cluster_id = opentelekomcloud_cce_cluster_v3.e2e.id
+}
+
 locals {
-  kubeconfig_server = (
-    var.kubeconfig_server == "external_otc" ? opentelekomcloud_cce_cluster_v3.e2e.external_otc :
-    var.kubeconfig_server == "external" ? opentelekomcloud_cce_cluster_v3.e2e.external :
+  kubeconfig_raw = yamldecode(data.opentelekomcloud_cce_cluster_kubeconfig_v3.e2e.kubeconfig)
+
+  preferred_server = (
+    var.kubeconfig_server == "external" && opentelekomcloud_cce_cluster_v3.e2e.external != "" ? opentelekomcloud_cce_cluster_v3.e2e.external :
+    var.kubeconfig_server == "external_otc" && opentelekomcloud_cce_cluster_v3.e2e.external_otc != "" ? opentelekomcloud_cce_cluster_v3.e2e.external_otc :
+    opentelekomcloud_cce_cluster_v3.e2e.external != "" ? opentelekomcloud_cce_cluster_v3.e2e.external :
+    opentelekomcloud_cce_cluster_v3.e2e.external_otc != "" ? opentelekomcloud_cce_cluster_v3.e2e.external_otc :
     opentelekomcloud_cce_cluster_v3.e2e.internal
   )
 
-  kubeconfig = {
-    apiVersion        = "v1"
-    kind              = "Config"
-    "current-context" = opentelekomcloud_cce_cluster_v3.e2e.name
-    clusters = [
-      {
-        name = opentelekomcloud_cce_cluster_v3.e2e.certificate_clusters[0].name
-        cluster = {
-          server                       = local.kubeconfig_server
-          "certificate-authority-data" = opentelekomcloud_cce_cluster_v3.e2e.certificate_clusters[0].certificate_authority_data
-        }
-      }
-    ]
-    contexts = [
-      {
-        name = opentelekomcloud_cce_cluster_v3.e2e.name
-        context = {
-          cluster = opentelekomcloud_cce_cluster_v3.e2e.certificate_clusters[0].name
-          user    = opentelekomcloud_cce_cluster_v3.e2e.certificate_users[0].name
-        }
-      }
-    ]
-    users = [
-      {
-        name = opentelekomcloud_cce_cluster_v3.e2e.certificate_users[0].name
-        user = {
-          "client-certificate-data" = opentelekomcloud_cce_cluster_v3.e2e.certificate_users[0].client_certificate_data
-          "client-key-data"         = opentelekomcloud_cce_cluster_v3.e2e.certificate_users[0].client_key_data
-        }
-      }
-    ]
-  }
+  kubeconfig = merge(
+    local.kubeconfig_raw,
+    {
+      clusters = [
+        for cluster in local.kubeconfig_raw.clusters : merge(
+          cluster,
+          {
+            cluster = merge(
+              cluster.cluster,
+              {
+                server = local.preferred_server
+              }
+            )
+          }
+        )
+      ]
+    }
+  )
 }
 
 output "cluster_id" {
@@ -52,6 +46,11 @@ output "cluster_name" {
 output "vpc_id" {
   description = "Ephemeral VPC ID."
   value       = opentelekomcloud_vpc_v1.e2e.id
+}
+
+output "cluster_api_public_ip" {
+  description = "CCE API public IP address, if public access is enabled."
+  value       = var.cluster_public_access ? opentelekomcloud_vpc_eip_v1.cluster_api[0].publicip[0].ip_address : ""
 }
 
 output "subnet_id" {

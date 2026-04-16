@@ -88,6 +88,42 @@ variable "cluster_api_access_trustlist" {
   default     = []
 }
 
+variable "cluster_public_access" {
+  description = "Whether to attach a public EIP to the CCE API endpoint."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_api_eip_type" {
+  description = "Public EIP type for the CCE API endpoint."
+  type        = string
+  default     = "5_bgp"
+}
+
+variable "cluster_api_bandwidth_name" {
+  description = "Bandwidth name for the CCE API EIP."
+  type        = string
+  default     = "tcloud-csi-e2e-cce-api"
+}
+
+variable "cluster_api_bandwidth_size" {
+  description = "Bandwidth size in Mbit/s for the CCE API EIP."
+  type        = number
+  default     = 100
+}
+
+variable "cluster_api_bandwidth_share_type" {
+  description = "Bandwidth share type for the CCE API EIP."
+  type        = string
+  default     = "PER"
+}
+
+variable "cluster_api_bandwidth_charge_mode" {
+  description = "Bandwidth charge mode for the CCE API EIP."
+  type        = string
+  default     = "traffic"
+}
+
 variable "container_network_cidr" {
   description = "Pod network CIDR used by the CCE overlay network."
   type        = string
@@ -155,9 +191,9 @@ variable "node_data_volume_size" {
 }
 
 variable "kubeconfig_server" {
-  description = "Cluster endpoint to put into generated kubeconfig. Supported values: external_otc, external, internal."
+  description = "Cluster endpoint to put into generated kubeconfig. Supported values: external, external_otc, internal."
   type        = string
-  default     = "external_otc"
+  default     = "external"
 
   validation {
     condition     = contains(["external_otc", "external", "internal"], var.kubeconfig_server)

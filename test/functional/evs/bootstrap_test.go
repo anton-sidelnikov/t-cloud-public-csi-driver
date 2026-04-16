@@ -10,17 +10,14 @@ func TestDriverBootstrap(t *testing.T) {
 
 	t.Cleanup(func() {
 		if t.Failed() {
+			t.Log("step: collect driver debug output")
 			k.collectDriverDebug(t)
 		}
 		if !cfg.keepResources {
-			k.deleteKustomize(t, "deploy/kubernetes")
+			t.Log("step: delete deployed CSI manifests")
+			k.deleteKustomize(t, cfg.deployPath)
 		}
 	})
 
-	k.applyKustomize(t, "deploy/kubernetes")
-	k.ensureNamespaceExists(t)
-	k.createOrUpdateCloudSecret(t, cfg)
-	k.setDriverImage(t, cfg.driverImage)
-	k.waitForDriverReady(t)
-	k.assertCSIDriverRegistered(t)
+	installDriver(t, cfg, k)
 }

@@ -16,7 +16,6 @@ import (
 	"t-cloud-public-csi-driver/internal/config"
 )
 
-var providerIDUUIDPattern = regexp.MustCompile(`([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type nodeIDResolver interface {
@@ -113,22 +112,10 @@ func providerInstanceID(node *corev1.Node) (string, error) {
 		return "", fmt.Errorf("node is nil")
 	}
 
-	providerID := strings.TrimSpace(node.Spec.ProviderID)
-	if providerID != "" {
-		match := providerIDUUIDPattern.FindStringSubmatch(providerID)
-		if len(match) == 2 {
-			return strings.ToLower(match[1]), nil
-		}
-	}
-
 	systemUUID := strings.TrimSpace(node.Status.NodeInfo.SystemUUID)
 	if isUUID(systemUUID) {
 		return strings.ToLower(systemUUID), nil
 	}
 
-	if providerID == "" {
-		return "", fmt.Errorf("node %q does not have a usable spec.providerID or status.nodeInfo.systemUUID", node.Name)
-	}
-
-	return "", fmt.Errorf("node %q has unsupported providerID format %q and unusable systemUUID %q", node.Name, providerID, systemUUID)
+	return "", fmt.Errorf("node %q does not have a usable status.nodeInfo.systemUUID (got %q)", node.Name, systemUUID)
 }

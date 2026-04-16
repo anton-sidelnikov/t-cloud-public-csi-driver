@@ -13,7 +13,7 @@ Prerequisites:
 - the CSI controller and node manifests from `deploy/kubernetes` are already running
 - the driver image in those manifests points to a real published image
 - cloud credentials are valid and the target project has EVS quota available
-- Kubernetes nodes expose the ECS instance UUID through `spec.providerID` or `status.nodeInfo.systemUUID`
+- Kubernetes nodes expose the real ECS instance UUID through `status.nodeInfo.systemUUID`
 - the node DaemonSet mounts the full host `/var/lib/kubelet` with bidirectional mount propagation
 
 ## Covered Scenarios

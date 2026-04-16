@@ -10,6 +10,7 @@ GOCACHE_DIR := $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
 IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):dev
 FUNCTIONAL_IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):e2e-$(COMMIT)
+#FUNCTIONAL_IMAGE ?= ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
 KUSTOMIZE_DIR := ./deploy/kubernetes
 FUNCTIONAL_TF_DIR := ./test/functional/terraform
 FUNCTIONAL_CACHE_DIR := $(CURDIR)/.cache/functional
