@@ -1,4 +1,4 @@
-SHELL := /bin/zsh
+SHELL := /bin/bash
 
 PROJECT_NAME := t-cloud-public-csi-driver
 PROJECT_OWNER := anton-sidelnikov
