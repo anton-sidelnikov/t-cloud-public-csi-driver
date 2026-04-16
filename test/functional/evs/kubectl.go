@@ -210,11 +210,6 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 	}
 }
 
-func (k kubectl) waitForNamespaceDeletion(t *testing.T, namespace string) {
-	t.Helper()
-	k.run(t, "wait", "--for=delete", "namespace/"+namespace, "--timeout=10m")
-}
-
 func (k kubectl) waitForPVCBound(t *testing.T, namespace, name string) {
 	t.Helper()
 	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=15m")

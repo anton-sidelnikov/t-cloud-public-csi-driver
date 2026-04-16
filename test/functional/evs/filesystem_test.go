@@ -27,8 +27,6 @@ func TestEVSFilesystemVolumeLifecycle(t *testing.T) {
 		if !cfg.keepResources {
 			t.Logf("step: delete namespace %s", namespace)
 			k.deleteNamespace(t, namespace)
-			t.Logf("step: wait for namespace %s deletion", namespace)
-			k.waitForNamespaceDeletion(t, namespace)
 			t.Log("step: delete deployed CSI manifests")
 			k.deleteKustomize(t, cfg.deployPath)
 		}
