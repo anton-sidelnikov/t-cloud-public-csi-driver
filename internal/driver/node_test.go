@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -150,6 +151,37 @@ func TestNodeStageVolumeSkipsBlockVolumes(t *testing.T) {
 	}
 }
 
+func TestNodeStageVolumeReturnsWhenAlreadyMounted(t *testing.T) {
+	mounter := &fakeMounter{mounted: map[string]bool{"/staging/vol-1": true}}
+	deviceManager := &fakeDeviceManager{}
+	server := &nodeServer{
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
+		mounter:        mounter,
+		deviceManager:  deviceManager,
+	}
+
+	_, err := server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{
+		VolumeId:          "vol-1",
+		StagingTargetPath: "/staging/vol-1",
+		PublishContext:    map[string]string{"devicePath": "/dev/vdb"},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NodeStageVolume returned error: %v", err)
+	}
+	if deviceManager.ensureFormattedDevice != "" {
+		t.Fatalf("did not expect formatting for mounted volume, got %q", deviceManager.ensureFormattedDevice)
+	}
+	if len(mounter.mountCalls) != 0 {
+		t.Fatalf("expected no mount calls, got %+v", mounter.mountCalls)
+	}
+}
+
 func TestNodePublishVolumeBindMountsStagedPath(t *testing.T) {
 	mounter := &fakeMounter{mounted: map[string]bool{}}
 	server := &nodeServer{
@@ -215,6 +247,69 @@ func TestNodePublishVolumeBlockUsesDevicePath(t *testing.T) {
 	}
 	if len(mounter.mountCalls) != 1 || mounter.mountCalls[0].source != "/dev/vdb" {
 		t.Fatalf("unexpected mount calls: %+v", mounter.mountCalls)
+	}
+}
+
+func TestNodePublishVolumeReturnsWhenAlreadyMounted(t *testing.T) {
+	mounter := &fakeMounter{mounted: map[string]bool{"/pods/vol-1": true}}
+	server := &nodeServer{
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
+	}
+
+	_, err := server.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
+		VolumeId:          "vol-1",
+		TargetPath:        "/pods/vol-1",
+		StagingTargetPath: "/staging/vol-1",
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NodePublishVolume returned error: %v", err)
+	}
+	if len(mounter.mountCalls) != 0 {
+		t.Fatalf("expected no mount calls, got %+v", mounter.mountCalls)
+	}
+}
+
+func TestNodePublishVolumeBlockPartialFailureCanBeRetried(t *testing.T) {
+	mounter := &fakeMounter{mounted: map[string]bool{}, mountErr: fmt.Errorf("mount failed")}
+	server := &nodeServer{
+		driver:         backendevs.New(),
+		nodeIDResolver: &staticNodeIDResolver{nodeID: "node-id"},
+		deviceResolver: &fakeDeviceResolver{resolvedPath: "/dev/vdb"},
+		mounter:        mounter,
+		deviceManager:  &fakeDeviceManager{},
+	}
+
+	req := &csi.NodePublishVolumeRequest{
+		VolumeId:       "vol-1",
+		TargetPath:     "/pods/blockvol",
+		PublishContext: map[string]string{"devicePath": "/dev/vdb"},
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+		},
+	}
+
+	_, err := server.NodePublishVolume(context.Background(), req)
+	assertCode(t, err, codes.Internal)
+
+	mounter.mountErr = nil
+	_, err = server.NodePublishVolume(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retry NodePublishVolume returned error: %v", err)
+	}
+	if len(mounter.ensureFilePaths) != 2 {
+		t.Fatalf("expected target file to be re-ensured on retry, got %+v", mounter.ensureFilePaths)
+	}
+	if len(mounter.mountCalls) != 2 {
+		t.Fatalf("expected second mount attempt, got %+v", mounter.mountCalls)
 	}
 }
 

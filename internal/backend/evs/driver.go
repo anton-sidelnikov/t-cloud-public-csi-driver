@@ -2,6 +2,7 @@ package evs
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
@@ -13,6 +14,12 @@ const (
 	driverName  = "csi.evs.tcloudpublic.com"
 	topologyKey = "topology.evs.tcloudpublic.com/zone"
 	deviceKey   = "devicePath"
+
+	paramAvailabilityZone = "availabilityZone"
+	paramDescription      = "description"
+	paramFSType           = "csi.storage.k8s.io/fstype"
+	paramMetadataPrefix   = "metadata."
+	paramVolumeType       = "volumeType"
 )
 
 type Driver struct{}
@@ -62,14 +69,18 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		return backend.CreateVolumeRequest{}, fmt.Errorf("required capacity must be set")
 	}
 
-	params := req.GetParameters()
+	params, err := validateAndNormalizeParameters(req.GetParameters())
+	if err != nil {
+		return backend.CreateVolumeRequest{}, err
+	}
+
 	return backend.CreateVolumeRequest{
 		Name:             req.GetName(),
 		SizeBytes:        req.GetCapacityRange().GetRequiredBytes(),
-		AvailabilityZone: valueOrDefault(params["availabilityZone"], cfg.AvailabilityZone),
-		VolumeType:       params["volumeType"],
-		Description:      params["description"],
-		Metadata:         params,
+		AvailabilityZone: valueOrDefault(params[paramAvailabilityZone], cfg.AvailabilityZone),
+		VolumeType:       params[paramVolumeType],
+		Description:      params[paramDescription],
+		Metadata:         volumeMetadata(params),
 	}, nil
 }
 
@@ -111,4 +122,40 @@ func valueOrDefault(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func validateAndNormalizeParameters(params map[string]string) (map[string]string, error) {
+	normalized := make(map[string]string, len(params))
+	for key, value := range params {
+		switch {
+		case key == paramAvailabilityZone,
+			key == paramDescription,
+			key == paramFSType,
+			key == paramVolumeType:
+			normalized[key] = strings.TrimSpace(value)
+		case strings.HasPrefix(key, paramMetadataPrefix):
+			metadataKey := strings.TrimPrefix(key, paramMetadataPrefix)
+			if metadataKey == "" {
+				return nil, fmt.Errorf("metadata parameter %q must include a metadata key after %q", key, paramMetadataPrefix)
+			}
+			normalized[key] = strings.TrimSpace(value)
+		default:
+			return nil, fmt.Errorf("unsupported EVS StorageClass parameter %q", key)
+		}
+	}
+
+	return normalized, nil
+}
+
+func volumeMetadata(params map[string]string) map[string]string {
+	metadata := make(map[string]string)
+	for key, value := range params {
+		if !strings.HasPrefix(key, paramMetadataPrefix) {
+			continue
+		}
+		metadataKey := strings.TrimPrefix(key, paramMetadataPrefix)
+		metadata[metadataKey] = value
+	}
+
+	return metadata
 }

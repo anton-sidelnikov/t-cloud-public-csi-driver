@@ -37,7 +37,7 @@ Implemented:
 Not implemented yet:
 
 - Snapshot APIs
-- Functional tests
+- Full EVS lifecycle functional tests
 
 ## Test Status
 
@@ -48,6 +48,14 @@ Current unit coverage includes:
 - node staging, publishing, unpublishing, expansion, and topology exposure
 - EVS helper behavior such as GiB rounding and response mapping
 
+Current functional coverage includes:
+
+- bootstrap of the CSI controller/node stack into an ephemeral CCE cluster
+- cloud secret creation from `OS_*` variables
+- rollout readiness verification for the controller `Deployment` and node `DaemonSet`
+- `CSIDriver` registration check
+- filesystem PVC lifecycle: provision, attach, mount, write/read validation, and cleanup
+
 Run:
 
 ```bash
@@ -56,7 +64,7 @@ go test ./...
 
 ## Development
 
-Common local tasks are exposed through the [Makefile](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/Makefile).
+Common local tasks are exposed through the [Makefile](./t-cloud-public-csi-driver/Makefile).
 
 Examples:
 
@@ -69,9 +77,18 @@ make manifests
 make image
 ```
 
+Build metadata can be overridden for local builds and images:
+
+```bash
+make build VERSION=v0.1.0 COMMIT=$(git rev-parse --short=12 HEAD)
+make image IMAGE=ghcr.io/example/tcloud-public-csi-driver:v0.1.0 VERSION=v0.1.0
+```
+
+The binary logs `version`, `commit`, and `build_date` on startup. Container images also include matching OCI labels.
+
 ## CI
 
-GitHub Actions workflow definitions live in [.github/workflows](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/.github/workflows).
+GitHub Actions workflow definitions live in [.github/workflows](./t-cloud-public-csi-driver/.github/workflows).
 
 The current CI pipeline runs:
 
@@ -81,9 +98,88 @@ The current CI pipeline runs:
 - Docker image build on pull requests
 - Docker image build and push to GHCR on pushes to `main` and version tags
 
+A separate manual workflow is available in [.github/workflows/functional.yaml](./t-cloud-public-csi-driver/.github/workflows/functional.yaml). It:
+
+- builds and pushes a unique functional-test image to GHCR
+- provisions ephemeral CCE infrastructure with Terraform
+- exports kubeconfig
+- runs EVS functional tests
+- uploads controller/node diagnostics on failure
+- destroys infrastructure automatically unless `keep_resources=true`
+
+A second workflow is available in [.github/workflows/functional-pr-comment.yaml](./t-cloud-public-csi-driver/.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
+
+Security boundary:
+
+- comment-triggered functional runs are restricted to same-repository PR branches
+- only `OWNER`, `MEMBER`, or `COLLABORATOR` comments can trigger them
+- fork PRs are intentionally rejected because the workflow requires cloud credentials and GHCR push access
+
+## Functional Tests
+
+Functional EVS tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
+
+The infrastructure scaffold lives in [test/functional/terraform](./t-cloud-public-csi-driver/test/functional/terraform). It creates a VPC, subnet, CCE cluster, worker nodes, and a generated kubeconfig output. Authentication is read from the same `OS_*` environment variables used by the CSI driver:
+
+```bash
+export OS_AUTH_URL=https://iam.example.com/v3
+export OS_REGION=eu-de
+export OS_AVAILABILITY_ZONE=eu-de-01
+export OS_DOMAIN_NAME=Default
+export OS_USERNAME=replace-me
+export OS_PASSWORD=replace-me
+export OS_PROJECT_ID=replace-me
+```
+
+Provision infrastructure. The Makefile maps `OS_*` into Terraform `TF_VAR_*` values automatically:
+
+```bash
+make functional-infra-init
+make functional-infra-up
+make functional-kubeconfig
+```
+
+Build and push a functional-test image from the current checkout. The image must be reachable by CCE worker nodes:
+
+```bash
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image-push
+```
+
+Run the functional test scaffold. If `CSI_TEST_IMAGE` is omitted, `make test-functional` uses `FUNCTIONAL_IMAGE`:
+
+```bash
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make test-functional
+```
+
+Destroy infrastructure:
+
+```bash
+make functional-infra-down
+```
+
+Terraform variables can still be overridden explicitly with `TF_VAR_*` when needed, for example `TF_VAR_node_count=3 make functional-infra-up`.
+
+For private registries, the functional test implementation must create an image pull secret before deploying the driver. Public GHCR images do not require that extra setup.
+
+The current Go functional package includes:
+
+- a bootstrap test that installs the CSI manifests into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
+- a filesystem lifecycle test that provisions an EVS-backed PVC, mounts it in a pod, writes and reads test data, and then cleans up the namespace
+
+The next functional-test steps are raw block, expansion, and reclaim-policy scenarios.
+
+The Terraform functional scaffold now defaults kubeconfig generation to the direct public CCE endpoint (`external`) instead of `external_otc`, because that behaves more reliably for normal `kubectl` operations from outside the cluster VPC.
+
+If the generated kubeconfig points to a CCE endpoint whose certificate chain is not trusted by the machine running the tests, the functional runner automatically retries `kubectl` with `--insecure-skip-tls-verify=true`. The bootstrap test also disables OpenAPI schema validation for `kubectl apply -k` and `kubectl delete -k`, which avoids false failures on clusters whose public endpoint does not expose schema discovery cleanly. You can still force insecure TLS mode up front with:
+
+```bash
+CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true make test-functional
+```
+
 ## Kubernetes Manifests
 
-Baseline manifests live in [deploy/kubernetes](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/deploy/kubernetes).
+Baseline manifests live in [deploy/kubernetes](./t-cloud-public-csi-driver/deploy/kubernetes).
 
 Included:
 
@@ -105,10 +201,29 @@ Before applying, replace the placeholder image `ghcr.io/example/tcloud-public-cs
 Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
-- the node plugin runs privileged and mounts `/dev`, `/sys`, and kubelet plugin paths
+- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
 - snapshot sidecars are not included yet because snapshot APIs are not implemented in the driver
 
-Manual EVS validation manifests live in [deploy/manual/evs](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/deploy/manual/evs).
+## EVS Operational Assumptions
+
+The EVS backend currently assumes:
+
+- Kubernetes node identity must expose the ECS instance UUID in `Node.status.nodeInfo.systemUUID`. The node plugin uses `systemUUID` as the canonical instance identifier and does not trust `spec.providerID` for EVS attach/detach.
+- `CSI_NODE_ID` is set from `spec.nodeName` in the node DaemonSet and is used only as the Kubernetes `Node` lookup key unless it is already a UUID.
+- EVS volumes are single-node block devices. The driver accepts CSI single-node access modes and rejects multi-node writer modes.
+- EVS volumes must be provisioned in an availability zone compatible with the node selected by Kubernetes. The example StorageClasses use `WaitForFirstConsumer`.
+- Raw block volumes require the node plugin to see host kubelet block-device publish paths under `/var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices`.
+- Online filesystem expansion requires controller expansion followed by node filesystem expansion. The controller treats EVS states `available` and `in-use` as valid completed expansion states when the size is updated.
+
+Useful checks:
+
+```bash
+kubectl get node <node-name> -o jsonpath='{.status.nodeInfo.systemUUID}{"\n"}'
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-node -c tcloud-public-csi-driver --tail=200
+kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=200
+```
+
+Manual EVS validation manifests live in [deploy/manual/evs](./t-cloud-public-csi-driver/deploy/manual/evs).
 
 They cover:
 
@@ -116,6 +231,36 @@ They cover:
 - raw block PVC + pod validation
 - online expansion checks
 - reclaim policy checks for `Delete` and `Retain`
+
+## EVS StorageClass Parameters
+
+The EVS backend validates `StorageClass.parameters` explicitly. Unsupported keys are rejected during `CreateVolume` so typos fail early instead of being silently ignored.
+
+Supported parameters:
+
+- `volumeType`: EVS volume type, for example `SSD`.
+- `availabilityZone`: EVS availability zone override. If omitted, the driver uses `OS_AVAILABILITY_ZONE`.
+- `description`: optional EVS volume description.
+- `csi.storage.k8s.io/fstype`: accepted for Kubernetes CSI compatibility. Filesystem formatting is still driven by the CSI volume capability on the node side.
+- `metadata.<key>`: optional EVS metadata. The `metadata.` prefix is stripped before sending metadata to EVS.
+
+Example:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: tcloud-public-evs-ssd
+provisioner: csi.evs.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  volumeType: SSD
+  availabilityZone: eu-de-01
+  description: Kubernetes EVS volume
+  metadata.environment: dev
+```
 
 ## Configuration
 

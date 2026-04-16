@@ -41,7 +41,7 @@ func TestResolveExistingDevicePathUsesSymlinkTarget(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	got, ok, err := resolveExistingDevicePath("vol-1", devicePath)
+	got, matched, ok, err := resolveExistingDevicePath("vol-1", devicePath)
 	if err != nil {
 		t.Fatalf("resolveExistingDevicePath returned error: %v", err)
 	}
@@ -55,6 +55,9 @@ func TestResolveExistingDevicePathUsesSymlinkTarget(t *testing.T) {
 	if got != want {
 		t.Fatalf("unexpected resolved path: got %q want %q", got, want)
 	}
+	if matched != devicePath {
+		t.Fatalf("unexpected matched path: got %q want %q", matched, devicePath)
+	}
 }
 
 func TestOSDevicePathResolverTimesOut(t *testing.T) {
@@ -63,5 +66,16 @@ func TestOSDevicePathResolverTimesOut(t *testing.T) {
 	_, err := resolver.ResolveDevicePath(context.Background(), "vol-1", "/dev/does-not-exist")
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+}
+
+func TestOSDevicePathResolverHonorsContextCancellation(t *testing.T) {
+	resolver := &osDevicePathResolver{timeout: time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := resolver.ResolveDevicePath(ctx, "vol-1", "/dev/does-not-exist")
+	if err == nil {
+		t.Fatal("expected context cancellation error")
 	}
 }

@@ -11,3 +11,5 @@ resources:
   - pod-block.yaml
   - pvc-expand.yaml
   - pod-expand.yaml
+  - pvc-retain.yaml
+  - pod-retain.yaml

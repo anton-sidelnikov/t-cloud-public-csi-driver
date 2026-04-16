@@ -18,7 +18,8 @@ func TestBuildCreateVolumeRequestUsesDefaults(t *testing.T) {
 			RequiredBytes: 10,
 		},
 		Parameters: map[string]string{
-			"volumeType": "SSD",
+			"volumeType":           " SSD ",
+			"metadata.application": " database ",
 		},
 	})
 	if err != nil {
@@ -29,6 +30,9 @@ func TestBuildCreateVolumeRequestUsesDefaults(t *testing.T) {
 	}
 	if req.VolumeType != "SSD" {
 		t.Fatalf("unexpected volume type: %q", req.VolumeType)
+	}
+	if req.Metadata["application"] != "database" {
+		t.Fatalf("unexpected metadata: %+v", req.Metadata)
 	}
 }
 
@@ -56,5 +60,59 @@ func TestValidateVolumeCapabilityRejectsUnsupportedMode(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestBuildCreateVolumeRequestRejectsUnsupportedParameters(t *testing.T) {
+	driver := New()
+
+	_, err := driver.BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 10,
+		},
+		Parameters: map[string]string{
+			"volumeTypo": "SSD",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unsupported parameter error")
+	}
+}
+
+func TestBuildCreateVolumeRequestAcceptsFSTypeParameter(t *testing.T) {
+	driver := New()
+
+	req, err := driver.BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 10,
+		},
+		Parameters: map[string]string{
+			"csi.storage.k8s.io/fstype": "ext4",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildCreateVolumeRequest returned error: %v", err)
+	}
+	if len(req.Metadata) != 0 {
+		t.Fatalf("did not expect CSI fstype parameter in EVS metadata: %+v", req.Metadata)
+	}
+}
+
+func TestBuildCreateVolumeRequestRejectsEmptyMetadataKey(t *testing.T) {
+	driver := New()
+
+	_, err := driver.BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 10,
+		},
+		Parameters: map[string]string{
+			"metadata.": "value",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected empty metadata key error")
 	}
 }

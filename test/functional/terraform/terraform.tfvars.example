@@ -1,0 +1,31 @@
+auth_url          = "https://iam.example.com/v3"
+region            = "eu-de"
+availability_zone = "eu-de-01"
+domain_name       = "Default"
+user_name         = "replace-me"
+password          = "replace-me"
+project_id        = "replace-me"
+project_name      = ""
+
+name_prefix = "tcloud-csi-e2e"
+
+cluster_flavor_id = "cce.s1.small"
+cluster_version   = ""
+
+node_count     = 2
+node_flavor_id = "s2.large.2"
+node_os        = "EulerOS 2.9"
+
+vpc_cidr          = "10.42.0.0/16"
+subnet_cidr       = "10.42.1.0/24"
+subnet_gateway_ip = "10.42.1.1"
+
+# Restrict API access in real CI. Example:
+# cluster_api_access_trustlist = ["203.0.113.10/32"]
+cluster_api_access_trustlist = []
+cluster_public_access        = true
+cluster_api_eip_type         = "5_bgp"
+cluster_api_bandwidth_name   = "tcloud-csi-e2e-cce-api"
+cluster_api_bandwidth_size   = 100
+cluster_api_bandwidth_share_type = "PER"
+cluster_api_bandwidth_charge_mode = "traffic"
