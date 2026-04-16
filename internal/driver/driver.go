@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -21,6 +22,7 @@ type Driver struct {
 	cfg        config.Config
 	driver     backendapi.Driver
 	service    backendapi.Service
+	logger     *slog.Logger
 	grpcServer *grpc.Server
 }
 
@@ -44,6 +46,7 @@ func New(cfg config.Config) (*Driver, error) {
 		cfg:     cfg,
 		driver:  driver,
 		service: service,
+		logger:  slog.Default().With("component", "driver", "backend", cfg.Backend, "driver_name", cfg.DriverName),
 	}, nil
 }
 
@@ -70,11 +73,13 @@ func (d *Driver) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		d.logger.Info("starting CSI server", "endpoint", d.cfg.Endpoint)
 		errCh <- server.Serve(listener)
 	}()
 
 	select {
 	case <-ctx.Done():
+		d.logger.Info("stopping CSI server")
 		server.GracefulStop()
 		return nil
 	case err := <-errCh:

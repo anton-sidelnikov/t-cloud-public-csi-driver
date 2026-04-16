@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ type devicePathResolver interface {
 
 type osDevicePathResolver struct {
 	timeout time.Duration
+	logger  *slog.Logger
 }
 
 func newDevicePathResolver(cfg config.Config) devicePathResolver {
@@ -25,18 +27,24 @@ func newDevicePathResolver(cfg config.Config) devicePathResolver {
 		timeout = 2 * time.Minute
 	}
 
-	return &osDevicePathResolver{timeout: timeout}
+	return &osDevicePathResolver{
+		timeout: timeout,
+		logger:  slog.Default().With("component", "node-device-resolver"),
+	}
 }
 
 func (r *osDevicePathResolver) ResolveDevicePath(ctx context.Context, volumeID, reportedPath string) (string, error) {
 	deadline := time.Now().Add(r.timeout)
+	logger := r.loggerOrDefault().With("volume_id", volumeID, "reported_path", reportedPath)
+	logger.Info("waiting for node device path")
 
 	for {
-		resolvedPath, ok, err := resolveExistingDevicePath(volumeID, reportedPath)
+		resolvedPath, matchedPath, ok, err := resolveExistingDevicePath(volumeID, reportedPath)
 		if err != nil {
 			return "", err
 		}
 		if ok {
+			logger.Info("resolved node device path", "matched_path", matchedPath, "resolved_path", resolvedPath)
 			return resolvedPath, nil
 		}
 		if time.Now().After(deadline) {
@@ -51,7 +59,14 @@ func (r *osDevicePathResolver) ResolveDevicePath(ctx context.Context, volumeID, 
 	}
 }
 
-func resolveExistingDevicePath(volumeID, reportedPath string) (string, bool, error) {
+func (r *osDevicePathResolver) loggerOrDefault() *slog.Logger {
+	if r.logger != nil {
+		return r.logger
+	}
+	return slog.Default().With("component", "node-device-resolver")
+}
+
+func resolveExistingDevicePath(volumeID, reportedPath string) (string, string, bool, error) {
 	candidates := devicePathCandidates(volumeID, reportedPath)
 	for _, candidate := range candidates {
 		_, err := os.Stat(candidate)
@@ -59,21 +74,21 @@ func resolveExistingDevicePath(volumeID, reportedPath string) (string, bool, err
 			if os.IsNotExist(err) {
 				continue
 			}
-			return "", false, err
+			return "", "", false, err
 		}
 
 		resolvedPath, err := filepath.EvalSymlinks(candidate)
 		if err == nil {
-			return resolvedPath, true, nil
+			return resolvedPath, candidate, true, nil
 		}
 		if os.IsNotExist(err) {
 			continue
 		}
 
-		return candidate, true, nil
+		return candidate, candidate, true, nil
 	}
 
-	return "", false, nil
+	return "", "", false, nil
 }
 
 func devicePathCandidates(volumeID, reportedPath string) []string {

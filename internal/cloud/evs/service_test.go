@@ -1,9 +1,14 @@
 package evs
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
+
+	"t-cloud-public-csi-driver/internal/backend"
 )
 
 func TestSizeBytesToGiB(t *testing.T) {
@@ -81,5 +86,67 @@ func TestExpansionReadyStatus(t *testing.T) {
 	}
 	if expansionReadyStatus("extending") {
 		t.Fatal("did not expect extending to be expansion-ready")
+	}
+}
+
+func TestHasAttachmentForServer(t *testing.T) {
+	attachments := []backend.Attachment{
+		{ID: "att-1", ServerID: "srv-1"},
+		{ID: "att-2", ServerID: "srv-2"},
+	}
+
+	if !hasAttachmentForServer(attachments, "srv-2") {
+		t.Fatal("expected attachment for srv-2")
+	}
+	if hasAttachmentForServer(attachments, "srv-3") {
+		t.Fatal("did not expect attachment for srv-3")
+	}
+}
+
+func TestWaitForAttachmentGoneReturnsWhenDetached(t *testing.T) {
+	calls := 0
+	err := waitForAttachmentGone(context.Background(), time.Second, time.Nanosecond, "vol-1", "srv-1", func(context.Context, string) (*backend.Volume, error) {
+		calls++
+		attachments := []backend.Attachment{{ID: "att-1", ServerID: "srv-1"}}
+		if calls > 1 {
+			attachments = nil
+		}
+		return &backend.Volume{ID: "vol-1", Attachments: attachments}, nil
+	})
+	if err != nil {
+		t.Fatalf("waitForAttachmentGone returned error: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("unexpected get volume calls: %d", calls)
+	}
+}
+
+func TestWaitForAttachmentGoneTimesOut(t *testing.T) {
+	err := waitForAttachmentGone(context.Background(), -time.Nanosecond, time.Nanosecond, "vol-1", "srv-1", func(context.Context, string) (*backend.Volume, error) {
+		return &backend.Volume{ID: "vol-1", Attachments: []backend.Attachment{{ID: "att-1", ServerID: "srv-1"}}}, nil
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+func TestWaitForAttachmentGonePropagatesGetVolumeError(t *testing.T) {
+	err := waitForAttachmentGone(context.Background(), time.Second, time.Nanosecond, "vol-1", "srv-1", func(context.Context, string) (*backend.Volume, error) {
+		return nil, fmt.Errorf("boom")
+	})
+	if err == nil {
+		t.Fatal("expected get volume error")
+	}
+}
+
+func TestWaitForAttachmentGoneHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := waitForAttachmentGone(ctx, time.Second, time.Nanosecond, "vol-1", "srv-1", func(context.Context, string) (*backend.Volume, error) {
+		return &backend.Volume{ID: "vol-1", Attachments: []backend.Attachment{{ID: "att-1", ServerID: "srv-1"}}}, nil
+	})
+	if err == nil {
+		t.Fatal("expected context cancellation error")
 	}
 }

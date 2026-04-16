@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -16,6 +17,7 @@ type controllerServer struct {
 	cfg     config.Config
 	driver  backend.Driver
 	service controllerService
+	logger  *slog.Logger
 }
 
 type controllerService interface {
@@ -31,19 +33,26 @@ func newControllerServer(cfg config.Config, driver backend.Driver, service contr
 		cfg:     cfg,
 		driver:  driver,
 		service: service,
+		logger:  slog.Default().With("component", "controller", "backend", cfg.Backend),
 	}
 }
 
 func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+	logger := s.loggerOrDefault().With("volume_name", req.GetName())
+	logger.Info("create volume requested")
+
 	createReq, err := s.driver.BuildCreateVolumeRequest(s.cfg, req)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "create volume request: %v", err)
 	}
+	logger = logger.With("availability_zone", createReq.AvailabilityZone, "volume_type", createReq.VolumeType, "size_bytes", createReq.SizeBytes)
 
 	vol, err := s.service.CreateVolume(ctx, createReq)
 	if err != nil {
+		logger.Error("create volume failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "create volume: %v", err)
 	}
+	logger.Info("create volume completed", "volume_id", vol.ID)
 
 	return &csi.CreateVolumeResponse{
 		Volume: toCSIVolume(s.driver, vol),
@@ -54,10 +63,14 @@ func (s *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolu
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_id is required")
 	}
+	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId())
+	logger.Info("delete volume requested")
 
 	if err := s.service.DeleteVolume(ctx, req.GetVolumeId()); err != nil {
+		logger.Error("delete volume failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "delete volume: %v", err)
 	}
+	logger.Info("delete volume completed")
 
 	return &csi.DeleteVolumeResponse{}, nil
 }
@@ -66,11 +79,15 @@ func (s *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi
 	if req.GetVolumeId() == "" || req.GetNodeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_id and node_id are required")
 	}
+	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId(), "node_id", req.GetNodeId())
+	logger.Info("controller publish requested")
 
 	attachment, err := s.service.AttachVolume(ctx, req.GetVolumeId(), req.GetNodeId())
 	if err != nil {
+		logger.Error("controller publish failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "attach volume: %v", err)
 	}
+	logger.Info("controller publish completed", "attachment_id", attachment.ID, "device", attachment.Device)
 
 	return &csi.ControllerPublishVolumeResponse{
 		PublishContext: s.driver.PublishContext(attachment),
@@ -81,10 +98,14 @@ func (s *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *c
 	if req.GetVolumeId() == "" || req.GetNodeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_id and node_id are required")
 	}
+	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId(), "node_id", req.GetNodeId())
+	logger.Info("controller unpublish requested")
 
 	if err := s.service.DetachVolume(ctx, req.GetVolumeId(), req.GetNodeId()); err != nil {
+		logger.Error("controller unpublish failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "detach volume: %v", err)
 	}
+	logger.Info("controller unpublish completed")
 
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
 }
@@ -126,16 +147,27 @@ func (s *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi.
 	if req.GetCapacityRange() == nil || req.GetCapacityRange().GetRequiredBytes() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "required capacity must be set")
 	}
+	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId(), "requested_bytes", req.GetCapacityRange().GetRequiredBytes())
+	logger.Info("controller expand requested")
 
 	size, err := s.service.ExpandVolume(ctx, req.GetVolumeId(), req.GetCapacityRange().GetRequiredBytes())
 	if err != nil {
+		logger.Error("controller expand failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "expand volume: %v", err)
 	}
+	logger.Info("controller expand completed", "capacity_bytes", size)
 
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         size,
 		NodeExpansionRequired: true,
 	}, nil
+}
+
+func (s *controllerServer) loggerOrDefault() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default().With("component", "controller")
 }
 
 func (s *controllerServer) GetCapacity(context.Context, *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {

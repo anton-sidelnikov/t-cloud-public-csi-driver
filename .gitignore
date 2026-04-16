@@ -11,6 +11,13 @@ coverage.out
 # Local caches
 /.cache/
 
+# Terraform local state and plans
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/*.tfplan
+**/terraform.tfvars
+
 # Dependency/vendor noise
 /vendor/
 
