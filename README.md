@@ -64,7 +64,7 @@ go test ./...
 
 ## Development
 
-Common local tasks are exposed through the [Makefile](./t-cloud-public-csi-driver/Makefile).
+Common local tasks are exposed through the [Makefile](Makefile).
 
 Examples:
 
@@ -88,7 +88,7 @@ The binary logs `version`, `commit`, and `build_date` on startup. Container imag
 
 ## CI
 
-GitHub Actions workflow definitions live in [.github/workflows](./t-cloud-public-csi-driver/.github/workflows).
+GitHub Actions workflow definitions live in [.github/workflows](.github/workflows).
 
 The current CI pipeline runs:
 
@@ -98,7 +98,7 @@ The current CI pipeline runs:
 - Docker image build on pull requests
 - Docker image build and push to GHCR on pushes to `main` and version tags
 
-A separate manual workflow is available in [.github/workflows/functional.yaml](./t-cloud-public-csi-driver/.github/workflows/functional.yaml). It:
+A separate manual workflow is available in [.github/workflows/functional.yaml](.github/workflows/functional.yaml). It:
 
 - builds and pushes a unique functional-test image to GHCR
 - provisions ephemeral CCE infrastructure with Terraform
@@ -107,7 +107,7 @@ A separate manual workflow is available in [.github/workflows/functional.yaml](.
 - uploads controller/node diagnostics on failure
 - destroys infrastructure automatically unless `keep_resources=true`
 
-A second workflow is available in [.github/workflows/functional-pr-comment.yaml](./t-cloud-public-csi-driver/.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
+A second workflow is available in [.github/workflows/functional-pr-comment.yaml](.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
 
 Security boundary:
 
@@ -119,7 +119,7 @@ Security boundary:
 
 Functional EVS tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
 
-The infrastructure scaffold lives in [test/functional/terraform](./t-cloud-public-csi-driver/test/functional/terraform). It creates a VPC, subnet, CCE cluster, worker nodes, and a generated kubeconfig output. Authentication is read from the same `OS_*` environment variables used by the CSI driver:
+The infrastructure scaffold lives in [test/functional/terraform](test/functional/terraform). It creates a VPC, subnet, CCE cluster, worker nodes, and a generated kubeconfig output. Authentication is read from the same `OS_*` environment variables used by the CSI driver:
 
 ```bash
 export OS_AUTH_URL=https://iam.example.com/v3
@@ -179,7 +179,7 @@ CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true make test-functional
 
 ## Kubernetes Manifests
 
-Baseline manifests live in [deploy/kubernetes](./t-cloud-public-csi-driver/deploy/kubernetes).
+Baseline manifests live in [deploy/kubernetes](deploy/kubernetes).
 
 Included:
 
@@ -223,7 +223,7 @@ kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-node -c tcloud
 kubectl -n tcloud-public-csi-system logs -l app=tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=200
 ```
 
-Manual EVS validation manifests live in [deploy/manual/evs](./t-cloud-public-csi-driver/deploy/manual/evs).
+Manual EVS validation manifests live in [deploy/manual/evs](deploy/manual/evs).
 
 They cover:
 
