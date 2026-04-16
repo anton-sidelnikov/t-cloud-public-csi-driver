@@ -109,12 +109,21 @@ A separate manual workflow is available in [.github/workflows/functional.yaml](.
 
 A second workflow is available in [.github/workflows/functional-pr-comment.yaml](.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
 
+A third workflow is available in [.github/workflows/functional-pr-dispatch.yaml](.github/workflows/functional-pr-dispatch.yaml). It is the branch-runnable `workflow_dispatch` companion to the PR-comment workflow, so you can test workflow changes from the current branch before merging them to `main`. It can also post start and result comments back to a PR if you provide `pr_number`.
+
 Security boundary:
 
 - comment-triggered functional runs are restricted to same-repository PR branches
 - only `OWNER`, `MEMBER`, or `COLLABORATOR` comments can trigger them
 - fork PRs are intentionally rejected because the workflow requires cloud credentials and GHCR push access
 - both functional workflows upload the raw `make test-functional` output so failures can be diagnosed from artifacts without reopening the live runner console
+
+Use the dispatch workflow when you need branch-local workflow logic:
+
+- open the Actions tab
+- select `functional-pr-dispatch`
+- choose the branch that contains the workflow change
+- optionally set `pr_number` if you want comments posted back to the PR
 
 ## Functional Tests
 
