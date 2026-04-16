@@ -37,7 +37,7 @@ Implemented:
 Not implemented yet:
 
 - Snapshot APIs
-- Functional tests
+- Full EVS lifecycle functional tests
 
 ## Test Status
 
@@ -47,6 +47,13 @@ Current unit coverage includes:
 - controller request validation and service interaction shaping
 - node staging, publishing, unpublishing, expansion, and topology exposure
 - EVS helper behavior such as GiB rounding and response mapping
+
+Current functional coverage includes:
+
+- bootstrap of the CSI controller/node stack into an ephemeral CCE cluster
+- cloud secret creation from `OS_*` variables
+- rollout readiness verification for the controller `Deployment` and node `DaemonSet`
+- `CSIDriver` registration check
 
 Run:
 
@@ -90,6 +97,15 @@ The current CI pipeline runs:
 - Docker image build on pull requests
 - Docker image build and push to GHCR on pushes to `main` and version tags
 
+A separate manual workflow is available in [.github/workflows/functional.yaml](/Users/antonsidelnikov/GolandProjects/t-cloud-public-csi-driver/.github/workflows/functional.yaml). It:
+
+- builds and pushes a unique functional-test image to GHCR
+- provisions ephemeral CCE infrastructure with Terraform
+- exports kubeconfig
+- runs EVS functional tests
+- uploads controller/node diagnostics on failure
+- destroys infrastructure automatically unless `keep_resources=true`
+
 ## Functional Tests
 
 Functional EVS tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
@@ -114,10 +130,17 @@ make functional-infra-up
 make functional-kubeconfig
 ```
 
-Run the functional test scaffold:
+Build and push a functional-test image from the current checkout. The image must be reachable by CCE worker nodes:
 
 ```bash
-CSI_TEST_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:<tag> make test-functional
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image-push
+```
+
+Run the functional test scaffold. If `CSI_TEST_IMAGE` is omitted, `make test-functional` uses `FUNCTIONAL_IMAGE`:
+
+```bash
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make test-functional
 ```
 
 Destroy infrastructure:
@@ -128,7 +151,9 @@ make functional-infra-down
 
 Terraform variables can still be overridden explicitly with `TF_VAR_*` when needed, for example `TF_VAR_node_count=3 make functional-infra-up`.
 
-The current Go functional package is only a scaffold. The next step is to add tests that install the CSI manifests into the generated cluster, create the cloud secret from `OS_*`, and run filesystem, raw block, expansion, and reclaim-policy scenarios.
+For private registries, the functional test implementation must create an image pull secret before deploying the driver. Public GHCR images do not require that extra setup.
+
+The current Go functional package now includes a first bootstrap test that installs the CSI manifests into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully. The next step is to add PVC lifecycle tests for filesystem, raw block, expansion, and reclaim-policy scenarios.
 
 ## Kubernetes Manifests
 

@@ -1,13 +1,15 @@
 SHELL := /bin/zsh
 
-PROJECT_NAME := tcloud-public-csi-driver
+PROJECT_NAME := t-cloud-public-csi-driver
+PROJECT_OWNER := anton-sidelnikov
 BINARY_NAME := tcloud-public-csi-driver
 CMD_PATH := ./cmd/tcloud-public-csi-driver
 BIN_DIR := ./bin
 DIST_DIR := ./dist
 GOCACHE_DIR := $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
-IMAGE ?= ghcr.io/example/$(PROJECT_NAME):dev
+IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):dev
+FUNCTIONAL_IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):e2e-$(COMMIT)
 KUSTOMIZE_DIR := ./deploy/kubernetes
 FUNCTIONAL_TF_DIR := ./test/functional/terraform
 FUNCTIONAL_CACHE_DIR := $(CURDIR)/.cache/functional
@@ -15,6 +17,7 @@ FUNCTIONAL_KUBECONFIG := $(FUNCTIONAL_CACHE_DIR)/kubeconfig
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILDX ?= $(shell if docker buildx version >/dev/null 2>&1; then echo "docker buildx build"; elif command -v docker-buildx >/dev/null 2>&1; then echo "docker-buildx build"; else echo "docker buildx build"; fi)
 VERSION_PACKAGE := t-cloud-public-csi-driver/internal/version
 LDFLAGS := -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).Date=$(BUILD_DATE)
 FUNCTIONAL_TF_ENV := \
@@ -43,6 +46,8 @@ help:
 	@echo "  make lint             Run golangci-lint"
 	@echo "  make check            Run fmt-check, vet, and test"
 	@echo "  make image            Build container image"
+	@echo "  make functional-image       Build functional-test image from current checkout"
+	@echo "  make functional-image-push  Build and push functional-test image"
 	@echo "  make functional-infra-init  Initialize functional-test Terraform"
 	@echo "  make functional-infra-plan  Plan functional-test infrastructure"
 	@echo "  make functional-infra-up    Provision functional-test infrastructure"
@@ -100,11 +105,27 @@ check: fmt-check vet test
 
 .PHONY: image
 image:
-	@docker build \
+	@$(BUILDX) --load \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE) .
+
+.PHONY: functional-image
+functional-image:
+	@$(BUILDX) --load \
+		--build-arg VERSION=e2e-$(COMMIT) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(FUNCTIONAL_IMAGE) .
+
+.PHONY: functional-image-push
+functional-image-push:
+	@$(BUILDX) --push \
+		--build-arg VERSION=e2e-$(COMMIT) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(FUNCTIONAL_IMAGE) .
 
 .PHONY: functional-infra-init
 functional-infra-init:
@@ -126,7 +147,7 @@ functional-kubeconfig: dirs
 
 .PHONY: test-functional
 test-functional:
-	@KUBECONFIG=$${KUBECONFIG:-$(FUNCTIONAL_KUBECONFIG)} go test -tags=functional ./test/functional/evs -v -timeout 90m
+	@KUBECONFIG=$${KUBECONFIG:-$(FUNCTIONAL_KUBECONFIG)} CSI_TEST_IMAGE=$${CSI_TEST_IMAGE:-$(FUNCTIONAL_IMAGE)} go test -tags=functional ./test/functional/evs -v -timeout 90m
 
 .PHONY: functional-infra-down
 functional-infra-down:

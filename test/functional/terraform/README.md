@@ -38,8 +38,10 @@ TF_VAR_node_count=3 TF_VAR_node_flavor_id=s3.large.2 make functional-infra-up
 Run functional tests once they are implemented:
 
 ```bash
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image-push
 KUBECONFIG=.cache/functional/kubeconfig \
-CSI_TEST_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:<tag> \
+FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) \
 make test-functional
 ```
 
