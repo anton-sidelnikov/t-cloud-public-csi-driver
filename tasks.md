@@ -37,7 +37,7 @@
 - Added a separate manual GitHub Actions workflow for functional tests: build/push image, provision ephemeral infrastructure, run tests, collect diagnostics, and destroy infrastructure.
 - Added a PR-comment-triggered functional workflow for same-repository PR branches. Maintainers can comment `run functional`, and the workflow posts start and result comments back to the PR.
 - Improved the functional workflows so they upload raw `make test-functional` output and include the failed phase in PR result comments.
-- Added a branch-runnable `workflow_dispatch` companion to the PR-comment functional workflow so workflow changes can be tested from the current branch and optionally report back to a PR.
+- Added a PR functional workflow that runs automatically on every same-repository PR update and can also be started manually with `workflow_dispatch`.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Adjusted the functional-test kubeconfig to prefer the direct public CCE endpoint and disabled schema validation for bootstrap `kubectl apply -k` and `kubectl delete -k`.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.

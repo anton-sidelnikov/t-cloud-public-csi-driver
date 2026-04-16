@@ -1,13 +1,14 @@
-name: functional-pr-dispatch
+name: functional-pr
 
 on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   workflow_dispatch:
     inputs:
-      pr_number:
-        description: "Optional PR number to post start/result comments back to"
-        required: false
-        default: ""
-        type: string
       keep_resources:
         description: "Keep cluster resources after the run"
         required: false
@@ -21,9 +22,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
   packages: write
-  pull-requests: write
 
 env:
   GO_VERSION: "1.25.0"
@@ -31,12 +30,13 @@ env:
 
 jobs:
   functional:
-    name: Branch EVS Functional
+    name: PR EVS Functional
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
-      group: functional-dispatch-${{ github.ref_name }}
-      cancel-in-progress: false
+      group: functional-pr-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref_name }}
+      cancel-in-progress: true
     env:
       OS_AUTH_URL: ${{ secrets.OS_AUTH_URL }}
       OS_REGION: ${{ secrets.OS_REGION }}
@@ -46,25 +46,12 @@ jobs:
       OS_PASSWORD: ${{ secrets.OS_PASSWORD }}
       OS_PROJECT_ID: ${{ secrets.OS_PROJECT_ID }}
       OS_PROJECT_NAME: ${{ secrets.OS_PROJECT_NAME }}
-      TF_VAR_node_count: ${{ inputs.node_count }}
+      TF_VAR_node_count: ${{ github.event_name == 'workflow_dispatch' && inputs.node_count || '1' }}
       TF_VAR_kubeconfig_server: external
-      CSI_TEST_KEEP_RESOURCES: ${{ inputs.keep_resources }}
-      FUNCTIONAL_IMAGE: ghcr.io/${{ github.repository }}:dispatch-functional-${{ github.run_id }}-${{ github.sha }}
+      CSI_TEST_KEEP_RESOURCES: ${{ github.event_name == 'workflow_dispatch' && inputs.keep_resources || 'false' }}
+      FUNCTIONAL_IMAGE: ghcr.io/${{ github.repository }}:pr-functional-${{ github.run_id }}-${{ github.sha }}
     steps:
-      - name: Comment start
-        if: inputs.pr_number != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: Number("${{ inputs.pr_number }}"),
-              body: `Started branch EVS functional run for \`${context.sha}\` from \`${context.ref.replace("refs/heads/", "")}\`.\n\nRun: ${runUrl}`,
-            })
-
-      - name: Checkout selected branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -128,36 +115,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: functional-diagnostics-dispatch-${{ github.run_id }}
+          name: functional-diagnostics-pr-${{ github.run_id }}
           path: .cache/functional/artifacts
           if-no-files-found: ignore
 
-      - name: Comment result
-        if: always() && inputs.pr_number != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            const status = "${{ job.status }}"
-            const icon = status === "success" ? "✅" : "❌"
-            let body = `${icon} Branch EVS functional run for \`${context.sha}\` from \`${context.ref.replace("refs/heads/", "")}\` finished with status \`${status}\`.\n\nRun: ${runUrl}`
-            if (status !== "success") {
-              const failedStep =
-                "${{ steps.run_tests.outcome }}" === "failure" ? "Run functional tests" :
-                "${{ steps.provision_infra.outcome }}" === "failure" ? "Provision functional infrastructure" :
-                "${{ steps.build_image.outcome }}" === "failure" ? "Build and push functional image" :
-                "unknown"
-              body += `\n\nFailed step: \`${failedStep}\``
-              body += `\n\nDiagnostics artifact: \`functional-diagnostics-dispatch-${context.runId}\``
-            }
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: Number("${{ inputs.pr_number }}"),
-              body,
-            })
-
       - name: Destroy functional infrastructure
-        if: always() && inputs.keep_resources != true
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.keep_resources != true)
         run: make functional-infra-down
