@@ -250,12 +250,7 @@ metadata:
 
 func (k kubectl) deleteNamespace(t *testing.T, namespace string) {
 	t.Helper()
-
-	manifest := `apiVersion: v1
-kind: Namespace
-metadata:
-  name: ` + namespace + "\n"
-	k.deleteManifest(t, manifest)
+	k.run(t, "delete", "namespace", namespace, "--ignore-not-found=true", "--wait=false")
 }
 
 func testNamespace(t *testing.T) string {
