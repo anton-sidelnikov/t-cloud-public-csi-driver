@@ -36,6 +36,7 @@
 - Changed node identity resolution to rely on Kubernetes `Node.status.nodeInfo.systemUUID` as the canonical ECS instance UUID, avoiding incorrect `spec.providerID` values returned by CCE.
 - Added a separate manual GitHub Actions workflow for functional tests: build/push image, provision ephemeral infrastructure, run tests, collect diagnostics, and destroy infrastructure.
 - Added a PR-comment-triggered functional workflow for same-repository PR branches. Maintainers can comment `run functional`, and the workflow posts start and result comments back to the PR.
+- Improved the functional workflows so they upload raw `make test-functional` output and include the failed phase in PR result comments.
 - Updated the Makefile so golangci-lint uses a repo-local cache instead of the user cache directory.
 - Adjusted the functional-test kubeconfig to prefer the direct public CCE endpoint and disabled schema validation for bootstrap `kubectl apply -k` and `kubectl delete -k`.
 - Resolved Go module dependencies and verified the scaffold builds with `go test ./...`.

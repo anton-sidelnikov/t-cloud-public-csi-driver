@@ -104,7 +104,7 @@ A separate manual workflow is available in [.github/workflows/functional.yaml](.
 - provisions ephemeral CCE infrastructure with Terraform
 - exports kubeconfig
 - runs EVS functional tests
-- uploads controller/node diagnostics on failure
+- uploads raw functional test output and controller/node diagnostics
 - destroys infrastructure automatically unless `keep_resources=true`
 
 A second workflow is available in [.github/workflows/functional-pr-comment.yaml](.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
@@ -114,6 +114,7 @@ Security boundary:
 - comment-triggered functional runs are restricted to same-repository PR branches
 - only `OWNER`, `MEMBER`, or `COLLABORATOR` comments can trigger them
 - fork PRs are intentionally rejected because the workflow requires cloud credentials and GHCR push access
+- both functional workflows upload the raw `make test-functional` output so failures can be diagnosed from artifacts without reopening the live runner console
 
 ## Functional Tests
 
