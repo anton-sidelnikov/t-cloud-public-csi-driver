@@ -29,3 +29,6 @@ coverage.out
 
 # OS files
 .DS_Store
+
+# Local task ledger
+/tasks.md

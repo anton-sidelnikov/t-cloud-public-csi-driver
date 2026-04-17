@@ -9,7 +9,6 @@ The initial slice in this repository focuses on:
 - CSI node methods for stage, publish, unpublish, unstage, and filesystem expansion
 - a multi-driver backend abstraction so additional T Cloud Public storage drivers can be added later
 - T Cloud Public authentication and service client initialization through `github.com/opentelekomcloud/gophertelekomcloud`
-- A task ledger in `tasks.md` so future work starts from the current state
 
 ## Current Status
 
@@ -98,32 +97,19 @@ The current CI pipeline runs:
 - Docker image build on pull requests
 - Docker image build and push to GHCR on pushes to `main` and version tags
 
-A separate manual workflow is available in [.github/workflows/functional.yaml](.github/workflows/functional.yaml). It:
+A separate workflow is available in [.github/workflows/functional-pr-dispatch.yaml](.github/workflows/functional-pr-dispatch.yaml). It runs EVS functional tests automatically on every same-repository PR commit and can also be started manually with `workflow_dispatch`.
 
-- builds and pushes a unique functional-test image to GHCR
-- provisions ephemeral CCE infrastructure with Terraform
-- exports kubeconfig
-- runs EVS functional tests
-- uploads raw functional test output and controller/node diagnostics
-- destroys infrastructure automatically unless `keep_resources=true`
-
-A second workflow is available in [.github/workflows/functional-pr-comment.yaml](.github/workflows/functional-pr-comment.yaml). It lets a maintainer trigger functional tests from a PR comment containing `run functional`, then posts start and final result comments back to the PR.
-
-A third workflow is available in [.github/workflows/functional-pr-dispatch.yaml](.github/workflows/functional-pr-dispatch.yaml). It runs EVS functional tests automatically on every same-repository PR commit and can also be started manually with `workflow_dispatch`.
-
-Security boundary:
-
-- comment-triggered functional runs are restricted to same-repository PR branches
-- only `OWNER`, `MEMBER`, or `COLLABORATOR` comments can trigger them
-- fork PRs are intentionally rejected because the workflow requires cloud credentials and GHCR push access
-- the PR functional workflow runs only for same-repository PR branches, so fork PRs do not receive cloud-backed functional runs
-- all functional workflows upload the raw `make test-functional` output so failures can be diagnosed from artifacts without reopening the live runner console
-
-Use the PR functional workflow when you want automatic branch-local functional runs on PR updates, or start it manually from the Actions tab when needed:
+Use the functional workflow when you want automatic branch-local functional runs on PR updates, or start it manually from the Actions tab when needed:
 
 - open the Actions tab
 - select `functional-pr-dispatch`
 - choose the branch that contains the workflow change when using `workflow_dispatch`
+
+Security boundary:
+
+- the PR functional workflow runs only for same-repository PR branches
+- fork PRs do not receive cloud-backed functional runs
+- functional runs upload the raw `make test-functional` output so failures can be diagnosed from artifacts
 
 ## Functional Tests
 
@@ -152,14 +138,14 @@ make functional-kubeconfig
 Build and push a functional-test image from the current checkout. The image must be reachable by CCE worker nodes:
 
 ```bash
-FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image
-FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make functional-image-push
+make functional-image
+make functional-image-push
 ```
 
 Run the functional test scaffold. If `CSI_TEST_IMAGE` is omitted, `make test-functional` uses `FUNCTIONAL_IMAGE`:
 
 ```bash
-FUNCTIONAL_IMAGE=ghcr.io/<owner>/t-cloud-public-csi-driver:e2e-$(git rev-parse --short=12 HEAD) make test-functional
+make test-functional
 ```
 
 Destroy infrastructure:
@@ -175,13 +161,13 @@ For private registries, the functional test implementation must create an image 
 The current Go functional package includes:
 
 - a bootstrap test that installs the CSI manifests into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
-- a filesystem lifecycle test that provisions an EVS-backed PVC, mounts it in a pod, writes and reads test data, and then cleans up the namespace
+- a filesystem lifecycle test that provisions an EVS-backed PVC, mounts it in a pod, writes and reads test data, and then performs best-effort namespace cleanup
 
 The next functional-test steps are raw block, expansion, and reclaim-policy scenarios.
 
 The Terraform functional scaffold now defaults kubeconfig generation to the direct public CCE endpoint (`external`) instead of `external_otc`, because that behaves more reliably for normal `kubectl` operations from outside the cluster VPC.
 
-If the generated kubeconfig points to a CCE endpoint whose certificate chain is not trusted by the machine running the tests, the functional runner automatically retries `kubectl` with `--insecure-skip-tls-verify=true`. The bootstrap test also disables OpenAPI schema validation for `kubectl apply -k` and `kubectl delete -k`, which avoids false failures on clusters whose public endpoint does not expose schema discovery cleanly. You can still force insecure TLS mode up front with:
+If the generated kubeconfig points to a CCE endpoint whose certificate chain is not trusted by the machine running the tests, the functional runner automatically retries `kubectl` with `--insecure-skip-tls-verify=true`. The bootstrap test also disables OpenAPI schema validation for `kubectl apply -k`, which avoids false failures on clusters whose public endpoint does not expose schema discovery cleanly. You can still force insecure TLS mode up front with:
 
 ```bash
 CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true make test-functional
@@ -301,6 +287,5 @@ If `CSI_BACKEND` is omitted, the driver defaults to `evs`.
 
 ## References
 
-- Huawei Cloud CSI Driver: https://github.com/huaweicloud/huaweicloud-csi-driver
 - OpenStack Cinder CSI references: https://github.com/kubernetes/cloud-provider-openstack
 - T Cloud Public Go SDK: https://github.com/opentelekomcloud/gophertelekomcloud
