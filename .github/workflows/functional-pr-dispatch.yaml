@@ -1,6 +1,12 @@
-name: functional
+name: functional-pr
 
 on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   workflow_dispatch:
     inputs:
       keep_resources:
@@ -23,10 +29,14 @@ env:
   TF_VERSION: "1.14.6"
 
 jobs:
-  evs-functional:
-    name: EVS Functional
+  functional:
+    name: Functional tests
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    concurrency:
+      group: functional-pr-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref_name }}
+      cancel-in-progress: true
     env:
       OS_AUTH_URL: ${{ secrets.OS_AUTH_URL }}
       OS_REGION: ${{ secrets.OS_REGION }}
@@ -36,13 +46,15 @@ jobs:
       OS_PASSWORD: ${{ secrets.OS_PASSWORD }}
       OS_PROJECT_ID: ${{ secrets.OS_PROJECT_ID }}
       OS_PROJECT_NAME: ${{ secrets.OS_PROJECT_NAME }}
-      TF_VAR_node_count: ${{ inputs.node_count }}
+      TF_VAR_node_count: ${{ github.event_name == 'workflow_dispatch' && inputs.node_count || '1' }}
       TF_VAR_kubeconfig_server: external
-      CSI_TEST_KEEP_RESOURCES: ${{ inputs.keep_resources }}
-      FUNCTIONAL_IMAGE: ghcr.io/${{ github.repository }}:functional-${{ github.run_id }}-${{ github.sha }}
+      CSI_TEST_KEEP_RESOURCES: ${{ github.event_name == 'workflow_dispatch' && inputs.keep_resources || 'false' }}
+      FUNCTIONAL_IMAGE: ghcr.io/${{ github.repository }}:pr-functional-${{ github.run_id }}-${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -65,20 +77,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare artifact directory
+        run: mkdir -p .cache/functional/artifacts
+
       - name: Build and push functional image
+        id: build_image
         run: make functional-image-push
 
       - name: Provision functional infrastructure
+        id: provision_infra
         run: |
           make functional-infra-init
           make functional-infra-up
           make functional-kubeconfig
 
       - name: Run functional tests
+        id: run_tests
         env:
           KUBECONFIG: ${{ github.workspace }}/.cache/functional/kubeconfig
         run: |
-          make test-functional
+          set -o pipefail
+          make test-functional 2>&1 | tee .cache/functional/artifacts/test-functional.log
 
       - name: Collect cluster diagnostics
         if: failure()
@@ -93,14 +112,13 @@ jobs:
           kubectl -n tcloud-public-csi-system logs daemonset/tcloud-public-csi-node -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/node.log || true
 
       - name: Upload diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: functional-diagnostics-${{ github.run_id }}
+          name: functional-diagnostics-pr-${{ github.run_id }}
           path: .cache/functional/artifacts
           if-no-files-found: ignore
 
       - name: Destroy functional infrastructure
-        if: always() && inputs.keep_resources != true
-        run: |
-          make functional-infra-down
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.keep_resources != true)
+        run: make functional-infra-down

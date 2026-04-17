@@ -210,11 +210,6 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 	}
 }
 
-func (k kubectl) waitForNamespaceDeletion(t *testing.T, namespace string) {
-	t.Helper()
-	k.run(t, "wait", "--for=delete", "namespace/"+namespace, "--timeout=10m")
-}
-
 func (k kubectl) waitForPVCBound(t *testing.T, namespace, name string) {
 	t.Helper()
 	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=15m")
@@ -250,12 +245,12 @@ metadata:
 
 func (k kubectl) deleteNamespace(t *testing.T, namespace string) {
 	t.Helper()
+	k.run(t, "delete", "namespace", namespace, "--ignore-not-found=true", "--wait=false")
+}
 
-	manifest := `apiVersion: v1
-kind: Namespace
-metadata:
-  name: ` + namespace + "\n"
-	k.deleteManifest(t, manifest)
+func (k kubectl) deletePod(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "delete", "pod", name, "--ignore-not-found=true", "--wait=false")
 }
 
 func testNamespace(t *testing.T) string {

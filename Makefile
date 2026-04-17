@@ -1,4 +1,4 @@
-SHELL := /bin/zsh
+SHELL := /bin/bash
 
 PROJECT_NAME := t-cloud-public-csi-driver
 PROJECT_OWNER := anton-sidelnikov
@@ -8,7 +8,6 @@ BIN_DIR := ./bin
 DIST_DIR := ./dist
 GOCACHE_DIR := $(CURDIR)/.cache/go-build
 GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/.cache/golangci-lint
-IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):dev
 FUNCTIONAL_IMAGE ?= ghcr.io/$(PROJECT_OWNER)/$(PROJECT_NAME):e2e-$(COMMIT)
 #FUNCTIONAL_IMAGE ?= ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
 KUSTOMIZE_DIR := ./deploy/kubernetes
@@ -103,14 +102,6 @@ tidy: dirs
 
 .PHONY: check
 check: fmt-check vet test
-
-.PHONY: image
-image:
-	@$(BUILDX) --load \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t $(IMAGE) .
 
 .PHONY: functional-image
 functional-image:
