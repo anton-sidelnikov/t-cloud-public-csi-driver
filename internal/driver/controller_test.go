@@ -223,6 +223,9 @@ func TestCreateVolumeFromSnapshotUsesSnapshotSizeWhenCapacityMissing(t *testing.
 	if resp.GetVolume().GetVolumeId() != "vol-1" {
 		t.Fatalf("unexpected volume id: %q", resp.GetVolume().GetVolumeId())
 	}
+	if resp.GetVolume().GetContentSource().GetSnapshot().GetSnapshotId() != "snap-1" {
+		t.Fatalf("unexpected response content source: %+v", resp.GetVolume().GetContentSource())
+	}
 }
 
 func TestCreateVolumeFromSnapshotRejectsSmallerRequestedSize(t *testing.T) {

@@ -80,7 +80,7 @@ func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 	logger.Info("create volume completed", "volume_id", vol.ID)
 
 	return &csi.CreateVolumeResponse{
-		Volume: toCSIVolume(s.driver, vol),
+		Volume: toCSIVolume(s.driver, vol, req.GetVolumeContentSource()),
 	}, nil
 }
 
@@ -289,7 +289,7 @@ func (s *controllerServer) ControllerGetVolume(context.Context, *csi.ControllerG
 	return nil, status.Error(codes.Unimplemented, "ControllerGetVolume is not implemented yet")
 }
 
-func toCSIVolume(driver backend.Driver, vol *backend.Volume) *csi.Volume {
+func toCSIVolume(driver backend.Driver, vol *backend.Volume, source *csi.VolumeContentSource) *csi.Volume {
 	return &csi.Volume{
 		CapacityBytes: vol.SizeBytes,
 		VolumeId:      vol.ID,
@@ -297,6 +297,7 @@ func toCSIVolume(driver backend.Driver, vol *backend.Volume) *csi.Volume {
 			{Segments: map[string]string{driver.TopologyKey(): vol.AvailabilityZone}},
 		},
 		VolumeContext: driver.VolumeContext(vol),
+		ContentSource: source,
 	}
 }
 
