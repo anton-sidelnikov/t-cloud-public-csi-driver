@@ -151,8 +151,8 @@ func (k kubectl) setDriverImage(t *testing.T, image string) {
 func (k kubectl) waitForDriverReady(t *testing.T) {
 	t.Helper()
 
-	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=15m")
-	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=20m")
+	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=10")
+	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=10")
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-controller", "--timeout=10m")
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-node", "--timeout=10m")
 }
@@ -195,6 +195,7 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 	commands := [][]string{
 		{"-n", namespace, "get", "all", "-o", "wide"},
 		{"-n", namespace, "get", "pvc,pv", "-o", "wide"},
+		{"-n", namespace, "get", "volumesnapshots,volumesnapshotcontents", "-o", "wide"},
 	}
 
 	for _, args := range commands {
@@ -212,12 +213,17 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 
 func (k kubectl) waitForPVCBound(t *testing.T, namespace, name string) {
 	t.Helper()
-	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=15m")
+	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=5")
+}
+
+func (k kubectl) waitForVolumeSnapshotReady(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.readyToUse}=true", "volumesnapshot/"+name, "--timeout=10")
 }
 
 func (k kubectl) waitForPodReady(t *testing.T, namespace, name string) {
 	t.Helper()
-	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=15m")
+	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=5")
 }
 
 func (k kubectl) getNamespacedJSONPath(t *testing.T, namespace, resource, jsonpath string) string {
@@ -231,6 +237,23 @@ func (k kubectl) execInPod(t *testing.T, namespace, pod string, command ...strin
 	args := []string{"-n", namespace, "exec", pod, "--"}
 	args = append(args, command...)
 	return k.run(t, args...)
+}
+
+func (k kubectl) hasVolumeSnapshotCRDs(t *testing.T) bool {
+	t.Helper()
+
+	required := []string{
+		"crd/volumesnapshots.snapshot.storage.k8s.io",
+		"crd/volumesnapshotcontents.snapshot.storage.k8s.io",
+		"crd/volumesnapshotclasses.snapshot.storage.k8s.io",
+	}
+	for _, resource := range required {
+		if _, err := k.runCommand("get", resource); err != nil {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (k kubectl) createNamespace(t *testing.T, namespace string) {
@@ -256,6 +279,11 @@ func (k kubectl) deletePod(t *testing.T, namespace, name string) {
 func (k kubectl) deletePvc(t *testing.T, namespace, name string) {
 	t.Helper()
 	k.run(t, "-n", namespace, "delete", "pvc", name, "--ignore-not-found=true", "--wait=false")
+}
+
+func (k kubectl) deleteVolumeSnapshot(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "delete", "volumesnapshot", name, "--ignore-not-found=true", "--wait=false")
 }
 
 func testNamespace(t *testing.T) string {
