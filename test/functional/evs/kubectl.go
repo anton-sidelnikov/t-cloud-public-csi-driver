@@ -157,6 +157,13 @@ func (k kubectl) waitForDriverReady(t *testing.T) {
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-node", "--timeout=10m")
 }
 
+func (k kubectl) waitForSnapshotControllerReady(t *testing.T) {
+	t.Helper()
+
+	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-snapshot-controller", "--timeout=10m")
+	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-snapshot-controller", "--timeout=10m")
+}
+
 func (k kubectl) assertCSIDriverRegistered(t *testing.T) {
 	t.Helper()
 
@@ -172,8 +179,10 @@ func (k kubectl) collectDriverDebug(t *testing.T) {
 	commands := [][]string{
 		{"get", "pods", "-A", "-o", "wide"},
 		{"-n", systemNamespace, "get", "pods", "-o", "wide"},
+		{"-n", systemNamespace, "get", "deployment", "tcloud-public-snapshot-controller", "-o", "wide"},
 		{"-n", systemNamespace, "logs", "deployment/tcloud-public-csi-controller", "-c", "tcloud-public-csi-driver", "--tail=200"},
 		{"-n", systemNamespace, "logs", "daemonset/tcloud-public-csi-node", "-c", "tcloud-public-csi-driver", "--tail=200"},
+		{"-n", systemNamespace, "logs", "deployment/tcloud-public-snapshot-controller", "--tail=200"},
 	}
 
 	for _, args := range commands {
@@ -254,6 +263,13 @@ func (k kubectl) hasVolumeSnapshotCRDs(t *testing.T) bool {
 	}
 
 	return true
+}
+
+func (k kubectl) snapshotControllerExists(t *testing.T) bool {
+	t.Helper()
+
+	_, err := k.runCommand("-n", systemNamespace, "get", "deployment", "tcloud-public-snapshot-controller")
+	return err == nil
 }
 
 func (k kubectl) createNamespace(t *testing.T, namespace string) {

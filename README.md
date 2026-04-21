@@ -188,8 +188,9 @@ Included:
 
 - namespace and example cloud credential secret
 - controller `Deployment` with `csi-provisioner`, `csi-attacher`, `csi-resizer`, and `csi-snapshotter`
+- cluster-level `snapshot-controller` `Deployment`
 - node `DaemonSet` with `node-driver-registrar`
-- RBAC for controller and node components
+- RBAC for controller, snapshot, and node components
 - `CSIDriver` object
 - example EVS `StorageClass`
 - example EVS `VolumeSnapshotClass`
@@ -206,7 +207,7 @@ Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
 - the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
-- snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`)
+- snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`), but the bundle now includes the `snapshot-controller` deployment itself
 
 ## EVS Operational Assumptions
 
@@ -254,6 +255,7 @@ Driver behavior:
 Deployment notes:
 
 - the controller manifest includes `csi-snapshotter`
+- the deployment bundle includes a cluster-level `snapshot-controller`
 - [deploy/kubernetes/volumesnapshotclass.yaml](deploy/kubernetes/volumesnapshotclass.yaml) provides a baseline `VolumeSnapshotClass`
 - your cluster must already have the Kubernetes snapshot CRDs installed
 
