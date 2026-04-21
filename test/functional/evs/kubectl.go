@@ -270,6 +270,11 @@ func (k kubectl) waitForPodReady(t *testing.T, namespace, name string) {
 	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=5m")
 }
 
+func (k kubectl) waitForPodDeleted(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "wait", "--for=delete", "pod/"+name, "--timeout=5m")
+}
+
 func (k kubectl) getNamespacedJSONPath(t *testing.T, namespace, resource, jsonpath string) string {
 	t.Helper()
 	return strings.TrimSpace(k.run(t, "-n", namespace, "get", resource, "-o", "jsonpath="+jsonpath))

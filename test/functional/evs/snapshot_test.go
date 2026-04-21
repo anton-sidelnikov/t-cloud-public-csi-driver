@@ -107,6 +107,11 @@ spec:
 		t.Fatalf("unexpected source file contents in %s: got %q want %q", testFile, sourceOutput, testValue)
 	}
 
+	t.Logf("step: delete source pod %s/%s before snapshot creation to quiesce the filesystem", namespace, sourcePodName)
+	k.deletePod(t, namespace, sourcePodName)
+	t.Logf("step: wait for source pod %s/%s to terminate", namespace, sourcePodName)
+	k.waitForPodDeleted(t, namespace, sourcePodName)
+
 	snapshotManifest := fmt.Sprintf(`apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshot
 metadata:
