@@ -21,6 +21,9 @@ Implemented:
 
 - `CreateVolume`
 - `DeleteVolume`
+- `CreateSnapshot`
+- `DeleteSnapshot`
+- `ListSnapshots`
 - `ControllerPublishVolume`
 - `ControllerUnpublishVolume`
 - `ControllerExpandVolume`
@@ -35,7 +38,6 @@ Implemented:
 
 Not implemented yet:
 
-- Snapshot APIs
 - Full EVS lifecycle functional tests
 
 ## Test Status
@@ -54,6 +56,11 @@ Current functional coverage includes:
 - rollout readiness verification for the controller `Deployment` and node `DaemonSet`
 - `CSIDriver` registration check
 - filesystem PVC lifecycle: provision, attach, mount, write/read validation, and cleanup
+
+Current snapshot coverage includes:
+
+- unit tests for create/delete/list snapshot controller flows
+- unit tests for restore-from-snapshot request mapping
 
 Run:
 
@@ -180,11 +187,12 @@ Baseline manifests live in [deploy/kubernetes](deploy/kubernetes).
 Included:
 
 - namespace and example cloud credential secret
-- controller `Deployment` with `csi-provisioner`, `csi-attacher`, and `csi-resizer`
+- controller `Deployment` with `csi-provisioner`, `csi-attacher`, `csi-resizer`, and `csi-snapshotter`
 - node `DaemonSet` with `node-driver-registrar`
 - RBAC for controller and node components
 - `CSIDriver` object
 - example EVS `StorageClass`
+- example EVS `VolumeSnapshotClass`
 
 Apply the bundle with:
 
@@ -198,7 +206,7 @@ Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
 - the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
-- snapshot sidecars are not included yet because snapshot APIs are not implemented in the driver
+- snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`)
 
 ## EVS Operational Assumptions
 
@@ -227,6 +235,27 @@ They cover:
 - raw block PVC + pod validation
 - online expansion checks
 - reclaim policy checks for `Delete` and `Retain`
+
+## Snapshot Support
+
+The EVS backend now supports the core CSI snapshot flow:
+
+- create snapshot from a source volume
+- delete snapshot
+- list snapshots
+- create a new volume from a snapshot source
+
+Driver behavior:
+
+- `CreateSnapshot` is idempotent by snapshot name and source volume
+- restored volumes use the snapshot size when the request does not specify capacity
+- restored volumes reject a requested size smaller than the snapshot size
+
+Deployment notes:
+
+- the controller manifest includes `csi-snapshotter`
+- [deploy/kubernetes/volumesnapshotclass.yaml](deploy/kubernetes/volumesnapshotclass.yaml) provides a baseline `VolumeSnapshotClass`
+- your cluster must already have the Kubernetes snapshot CRDs installed
 
 ## EVS StorageClass Parameters
 

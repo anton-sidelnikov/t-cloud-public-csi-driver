@@ -100,6 +100,28 @@ func TestBuildCreateVolumeRequestAcceptsFSTypeParameter(t *testing.T) {
 	}
 }
 
+func TestBuildCreateVolumeRequestIncludesSnapshotSource(t *testing.T) {
+	driver := New()
+
+	req, err := driver.BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 10,
+		},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "snap-1"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildCreateVolumeRequest returned error: %v", err)
+	}
+	if req.SnapshotID != "snap-1" {
+		t.Fatalf("unexpected snapshot id: %q", req.SnapshotID)
+	}
+}
+
 func TestBuildCreateVolumeRequestRejectsEmptyMetadataKey(t *testing.T) {
 	driver := New()
 

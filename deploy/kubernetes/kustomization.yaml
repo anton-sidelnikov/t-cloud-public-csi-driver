@@ -8,3 +8,4 @@ resources:
   - controller.yaml
   - node.yaml
   - storageclass.yaml
+  - volumesnapshotclass.yaml

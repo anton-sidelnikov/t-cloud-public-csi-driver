@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
@@ -32,6 +33,24 @@ type CreateVolumeRequest struct {
 	VolumeType       string
 	Description      string
 	Metadata         map[string]string
+	SnapshotID       string
+}
+
+type Snapshot struct {
+	ID             string
+	Name           string
+	Description    string
+	SourceVolumeID string
+	Status         string
+	SizeBytes      int64
+	CreatedAt      time.Time
+	ReadyToUse     bool
+}
+
+type ListSnapshotsRequest struct {
+	ID             string
+	Name           string
+	SourceVolumeID string
 }
 
 type Service interface {
@@ -40,6 +59,10 @@ type Service interface {
 	AttachVolume(context.Context, string, string) (*Attachment, error)
 	DetachVolume(context.Context, string, string) error
 	ExpandVolume(context.Context, string, int64) (int64, error)
+	CreateSnapshot(context.Context, string, string) (*Snapshot, error)
+	DeleteSnapshot(context.Context, string) error
+	GetSnapshot(context.Context, string) (*Snapshot, error)
+	ListSnapshots(context.Context, ListSnapshotsRequest) ([]*Snapshot, error)
 }
 
 type Driver interface {

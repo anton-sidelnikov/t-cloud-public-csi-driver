@@ -25,6 +25,8 @@ func TestEVSFilesystemVolumeLifecycle(t *testing.T) {
 			k.collectDriverDebug(t)
 		}
 		if !cfg.keepResources {
+			t.Logf("step: delete pvc %s/%s", namespace, pvcName)
+			k.deletePvc(t, namespace, pvcName)
 			t.Logf("step: delete pod %s/%s", namespace, podName)
 			k.deletePod(t, namespace, podName)
 			t.Logf("step: delete namespace %s", namespace)

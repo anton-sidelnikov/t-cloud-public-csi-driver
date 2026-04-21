@@ -253,6 +253,11 @@ func (k kubectl) deletePod(t *testing.T, namespace, name string) {
 	k.run(t, "-n", namespace, "delete", "pod", name, "--ignore-not-found=true", "--wait=false")
 }
 
+func (k kubectl) deletePvc(t *testing.T, namespace, name string) {
+	t.Helper()
+	k.run(t, "-n", namespace, "delete", "pvc", name, "--ignore-not-found=true", "--wait=false")
+}
+
 func testNamespace(t *testing.T) string {
 	t.Helper()
 
