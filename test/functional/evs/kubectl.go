@@ -5,7 +5,9 @@ package evsfunctional
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +166,38 @@ func (k kubectl) waitForSnapshotControllerReady(t *testing.T) {
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-snapshot-controller", "--timeout=10m")
 }
 
+func (k kubectl) deploymentExists(t *testing.T, namespace, name string) bool {
+	t.Helper()
+
+	_, err := k.runCommand("-n", namespace, "get", "deployment", name)
+	return err == nil
+}
+
+func (k kubectl) scaleDeployment(t *testing.T, namespace, name string, replicas int) {
+	t.Helper()
+	k.run(t, "-n", namespace, "scale", "deployment", name, fmt.Sprintf("--replicas=%d", replicas))
+}
+
+func (k kubectl) waitForDeploymentReplicas(t *testing.T, namespace, name string, replicas int) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Minute)
+	want := strconv.Itoa(replicas)
+	for {
+		output := strings.TrimSpace(k.run(t, "-n", namespace, "get", "deployment", name, "-o", "jsonpath={.status.readyReplicas}"))
+		if output == "" && replicas == 0 {
+			return
+		}
+		if output == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("deployment %s/%s did not reach %d ready replicas, got %q", namespace, name, replicas, output)
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
 func (k kubectl) assertCSIDriverRegistered(t *testing.T) {
 	t.Helper()
 
@@ -178,6 +212,7 @@ func (k kubectl) collectDriverDebug(t *testing.T) {
 
 	commands := [][]string{
 		{"get", "pods", "-A", "-o", "wide"},
+		{"-n", "kube-system", "get", "deployment", "everest-csi-controller", "-o", "wide"},
 		{"-n", systemNamespace, "get", "pods", "-o", "wide"},
 		{"-n", systemNamespace, "get", "deployment", "tcloud-public-snapshot-controller", "-o", "wide"},
 		{"-n", systemNamespace, "logs", "deployment/tcloud-public-csi-controller", "-c", "tcloud-public-csi-driver", "--tail=200"},

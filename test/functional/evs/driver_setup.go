@@ -20,6 +20,12 @@ func installDriver(t *testing.T, cfg testConfig, k kubectl) {
 	k.setDriverImage(t, cfg.driverImage)
 	t.Log("step: wait for controller and node rollout readiness")
 	k.waitForDriverReady(t)
+	if k.deploymentExists(t, "kube-system", "everest-csi-controller") {
+		t.Log("step: scale down managed everest-csi-controller to avoid snapshot reconciliation conflicts in the ephemeral test cluster")
+		k.scaleDeployment(t, "kube-system", "everest-csi-controller", 0)
+		t.Log("step: wait for everest-csi-controller to scale down")
+		k.waitForDeploymentReplicas(t, "kube-system", "everest-csi-controller", 0)
+	}
 	if k.hasVolumeSnapshotCRDs(t) {
 		t.Log("step: ensure snapshot-controller deployment is present for VolumeSnapshot reconciliation")
 		ensureSnapshotControllerInstalled(t, k)
@@ -55,6 +61,12 @@ kind: ClusterRole
 metadata:
   name: tcloud-public-snapshot-controller-runner
 rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list", "watch", "create", "update", "patch"]

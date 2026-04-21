@@ -65,6 +65,7 @@ make functional-infra-down
 Operational notes:
 
 - CCE must be authorized in the target project before cluster creation.
+- The ephemeral CCE clusters include the managed `everest-csi-controller` addon. The functional bootstrap scales that deployment to zero so Kubernetes snapshot reconciliation is handled only by the test-deployed CSI stack and not by the managed Everest controller.
 - The generated Terraform state contains sensitive data, including kubeconfig material and generated keypair data. Keep it local and do not commit it.
 - In CI, run destroy in an `always()`/finally step.
 - Restrict `cluster_api_access_trustlist` to CI runner or developer IP ranges when possible.
