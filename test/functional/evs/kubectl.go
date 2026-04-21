@@ -151,8 +151,8 @@ func (k kubectl) setDriverImage(t *testing.T, image string) {
 func (k kubectl) waitForDriverReady(t *testing.T) {
 	t.Helper()
 
-	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=10")
-	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=10")
+	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=10m")
+	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=10m")
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-controller", "--timeout=10m")
 	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-node", "--timeout=10m")
 }
@@ -213,17 +213,17 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 
 func (k kubectl) waitForPVCBound(t *testing.T, namespace, name string) {
 	t.Helper()
-	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=5")
+	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.phase}=Bound", "pvc/"+name, "--timeout=5m")
 }
 
 func (k kubectl) waitForVolumeSnapshotReady(t *testing.T, namespace, name string) {
 	t.Helper()
-	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.readyToUse}=true", "volumesnapshot/"+name, "--timeout=10")
+	k.run(t, "-n", namespace, "wait", "--for=jsonpath={.status.readyToUse}=true", "volumesnapshot/"+name, "--timeout=10m")
 }
 
 func (k kubectl) waitForPodReady(t *testing.T, namespace, name string) {
 	t.Helper()
-	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=5")
+	k.run(t, "-n", namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=5m")
 }
 
 func (k kubectl) getNamespacedJSONPath(t *testing.T, namespace, resource, jsonpath string) string {

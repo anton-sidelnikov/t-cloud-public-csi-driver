@@ -45,12 +45,10 @@ func TestEVSSnapshotVolumeLifecycle(t *testing.T) {
 			k.deletePvc(t, namespace, sourcePVCName)
 			t.Logf("step: delete namespace %s", namespace)
 			k.deleteNamespace(t, namespace)
-			t.Log("step: delete deployed CSI manifests")
-			k.deleteKustomize(t, cfg.deployPath)
 		}
 	})
 
-	installDriver(t, cfg, k)
+	ensureDriverInstalled(t, cfg, k)
 
 	t.Logf("step: create namespace %s", namespace)
 	k.createNamespace(t, namespace)
