@@ -27,7 +27,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: tcloud-public-csi-driver
-          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:pr-functional-24723110576-d01fc8c3a0640f80b5adbf524c3ef30685b98cce
+          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
           securityContext:
             privileged: true
           env:

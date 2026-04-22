@@ -20,6 +20,7 @@ func TestEVSSnapshotVolumeLifecycle(t *testing.T) {
 	sourcePodName := "evs-src-pod"
 	snapshotName := "evs-src-snap"
 	restorePVCName := "evs-restore-pvc"
+	restorePodName := "evs-restore-pod"
 	storageClassName := "tcloud-public-evs"
 	snapshotClassName := "tcloud-public-evs"
 	testFile := "/data/app/snapshot.txt"
@@ -32,6 +33,8 @@ func TestEVSSnapshotVolumeLifecycle(t *testing.T) {
 			k.collectDriverDebug(t)
 		}
 		if !cfg.keepResources {
+			t.Logf("step: delete pod %s/%s", namespace, restorePodName)
+			k.deletePod(t, namespace, restorePodName)
 			t.Logf("step: delete PVC %s/%s", namespace, restorePVCName)
 			k.deletePvc(t, namespace, restorePVCName)
 			t.Logf("step: delete VolumeSnapshot %s/%s", namespace, snapshotName)
@@ -141,13 +144,40 @@ spec:
     name: %s
     kind: VolumeSnapshot
     apiGroup: snapshot.storage.k8s.io
-`, restorePVCName, namespace, storageClassName, snapshotName)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -ceu
+        - |
+          mkdir -p /data/app
+          echo restore-smoke > /data/app/restore-smoke.txt
+          tail -f /dev/null
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: %s
+`, restorePVCName, namespace, storageClassName, snapshotName, restorePodName, namespace, restorePVCName)
 
-	t.Logf("step: create restored PVC %s/%s from VolumeSnapshot %s/%s", namespace, restorePVCName, namespace, snapshotName)
+	t.Logf("step: create restored PVC %s/%s and smoke pod %s/%s from VolumeSnapshot %s/%s", namespace, restorePVCName, namespace, restorePodName, namespace, snapshotName)
 	k.applyManifest(t, restoreManifest)
 
 	t.Logf("step: wait for restored PVC %s/%s to bind", namespace, restorePVCName)
 	k.waitForPVCBound(t, namespace, restorePVCName)
+	t.Logf("step: wait for restored pod %s/%s to become ready", namespace, restorePodName)
+	k.waitForPodReady(t, namespace, restorePodName)
 	restorePVName := k.getNamespacedJSONPath(t, namespace, "pvc/"+restorePVCName, "{.spec.volumeName}")
 	if restorePVName == "" {
 		t.Fatal("expected restored PVC to reference a PV")
@@ -159,5 +189,5 @@ spec:
 		t.Fatal("expected bound VolumeSnapshotContent name")
 	}
 
-	t.Logf("snapshot smoke lifecycle succeeded with source PV %s, restore PV %s, and VolumeSnapshotContent %s", sourcePVName, restorePVName, contentName)
+	t.Logf("snapshot smoke lifecycle succeeded with source PV %s, restore PV %s, restored pod %s, and VolumeSnapshotContent %s", sourcePVName, restorePVName, restorePodName, contentName)
 }
