@@ -98,6 +98,10 @@ spec:
 
 	t.Logf("step: wait for source PVC %s/%s to bind", namespace, sourcePVCName)
 	k.waitForPVCBound(t, namespace, sourcePVCName)
+	sourcePVName := k.getNamespacedJSONPath(t, namespace, "pvc/"+sourcePVCName, "{.spec.volumeName}")
+	if sourcePVName == "" {
+		t.Fatal("expected source PVC to reference a PV")
+	}
 	t.Logf("step: wait for source pod %s/%s to become ready", namespace, sourcePodName)
 	k.waitForPodReady(t, namespace, sourcePodName)
 
@@ -111,6 +115,8 @@ spec:
 	k.forceDeletePod(t, namespace, sourcePodName)
 	t.Logf("step: wait for source pod %s/%s to terminate", namespace, sourcePodName)
 	k.waitForPodDeleted(t, namespace, sourcePodName)
+	t.Logf("step: wait for source PV %s volume attachment to be removed", sourcePVName)
+	k.waitForVolumeAttachmentDeleted(t, sourcePVName)
 
 	snapshotManifest := fmt.Sprintf(`apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshot

@@ -240,6 +240,7 @@ func (k kubectl) collectNamespaceDebug(t *testing.T, namespace string) {
 		{"-n", namespace, "get", "all", "-o", "wide"},
 		{"-n", namespace, "get", "pvc,pv", "-o", "wide"},
 		{"-n", namespace, "get", "volumesnapshots,volumesnapshotcontents", "-o", "wide"},
+		{"get", "volumeattachments", "-o", "wide"},
 	}
 
 	for _, args := range commands {
@@ -273,6 +274,22 @@ func (k kubectl) waitForPodReady(t *testing.T, namespace, name string) {
 func (k kubectl) waitForPodDeleted(t *testing.T, namespace, name string) {
 	t.Helper()
 	k.run(t, "-n", namespace, "wait", "--for=delete", "pod/"+name, "--timeout=5m")
+}
+
+func (k kubectl) waitForVolumeAttachmentDeleted(t *testing.T, persistentVolumeName string) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		attachments := strings.TrimSpace(k.run(t, "get", "volumeattachment", "-o", "jsonpath={range .items[?(@.spec.source.persistentVolumeName==\""+persistentVolumeName+"\")]}{.metadata.name}{\"\\n\"}{end}"))
+		if attachments == "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("volume attachments for PV %s still exist: %s", persistentVolumeName, attachments)
+		}
+		time.Sleep(3 * time.Second)
+	}
 }
 
 func (k kubectl) getNamespacedJSONPath(t *testing.T, namespace, resource, jsonpath string) string {
