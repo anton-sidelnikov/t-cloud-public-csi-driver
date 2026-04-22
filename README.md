@@ -56,11 +56,13 @@ Current functional coverage includes:
 - rollout readiness verification for the controller `Deployment` and node `DaemonSet`
 - `CSIDriver` registration check
 - filesystem PVC lifecycle: provision, attach, mount, write/read validation, and cleanup
+- snapshot smoke lifecycle on CCE: source PVC, `VolumeSnapshot` readiness, and restore PVC binding
 
 Current snapshot coverage includes:
 
 - unit tests for create/delete/list snapshot controller flows
 - unit tests for restore-from-snapshot request mapping
+- functional CCE smoke coverage for snapshot and restore control-plane flow
 
 Run:
 
