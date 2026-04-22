@@ -65,6 +65,22 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
+        - name: csi-snapshotter
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
         - name: tcloud-public-csi-driver
           image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
           args: []

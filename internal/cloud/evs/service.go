@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	golangsdk "github.com/opentelekomcloud/gophertelekomcloud"
 	"github.com/opentelekomcloud/gophertelekomcloud/openstack"
+	blocksnapshots "github.com/opentelekomcloud/gophertelekomcloud/openstack/blockstorage/v3/snapshots"
 
 	"t-cloud-public-csi-driver/internal/backend"
 	"t-cloud-public-csi-driver/internal/config"
@@ -69,6 +71,9 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 			"description":       req.Description,
 			"metadata":          req.Metadata,
 		},
+	}
+	if req.SnapshotID != "" {
+		body["volume"].(map[string]any)["snapshot_id"] = req.SnapshotID
 	}
 
 	var resp struct {
@@ -198,6 +203,97 @@ func (s *Service) GetVolume(ctx context.Context, volumeID string) (*backend.Volu
 	return resp.Volume.toDomain(), nil
 }
 
+func (s *Service) CreateSnapshot(ctx context.Context, volumeID, name string) (*backend.Snapshot, error) {
+	logger := s.loggerOrDefault().With("volume_id", volumeID, "snapshot_name", name)
+	logger.Info("creating EVS snapshot")
+
+	result := blocksnapshots.Create(s.blockStore, blocksnapshots.CreateOpts{
+		VolumeID: volumeID,
+		Name:     name,
+		Force:    true,
+	})
+	if result.Err != nil {
+		logger.Error("create EVS snapshot request failed", "error", result.Err)
+		return nil, result.Err
+	}
+
+	snapshot, err := result.Extract()
+	if err != nil {
+		logger.Error("extract EVS snapshot create response failed", "error", err)
+		return nil, err
+	}
+
+	logger = logger.With("snapshot_id", snapshot.ID)
+	logger.Info("waiting for EVS snapshot to become available")
+
+	readySnapshot, err := s.waitForSnapshotStatus(ctx, snapshot.ID, "available")
+	if err != nil {
+		logger.Error("EVS snapshot did not become available", "error", err)
+		return nil, err
+	}
+	logger.Info("EVS snapshot created", "status", readySnapshot.Status)
+
+	return readySnapshot, nil
+}
+
+func (s *Service) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	logger := s.loggerOrDefault().With("snapshot_id", snapshotID)
+	logger.Info("deleting EVS snapshot")
+
+	result := blocksnapshots.Delete(s.blockStore, snapshotID)
+	if result.Err != nil {
+		logger.Error("delete EVS snapshot request failed", "error", result.Err)
+		return result.Err
+	}
+	logger.Info("delete EVS snapshot request accepted")
+	return nil
+}
+
+func (s *Service) GetSnapshot(ctx context.Context, snapshotID string) (*backend.Snapshot, error) {
+	_ = ctx
+
+	result := blocksnapshots.Get(s.blockStore, snapshotID)
+	if result.Err != nil {
+		return nil, result.Err
+	}
+
+	snapshot, err := result.Extract()
+	if err != nil {
+		return nil, err
+	}
+
+	return toBackendSnapshot(snapshot), nil
+}
+
+func (s *Service) ListSnapshots(ctx context.Context, req backend.ListSnapshotsRequest) ([]*backend.Snapshot, error) {
+	_ = ctx
+
+	opts := blocksnapshots.ListOpts{
+		Name:     strings.TrimSpace(req.Name),
+		VolumeID: strings.TrimSpace(req.SourceVolumeID),
+	}
+
+	pages, err := blocksnapshots.List(s.blockStore, opts).AllPages()
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := blocksnapshots.ExtractSnapshots(pages)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshots := make([]*backend.Snapshot, 0, len(items))
+	for i := range items {
+		if req.ID != "" && items[i].ID != req.ID {
+			continue
+		}
+		snapshots = append(snapshots, toBackendSnapshot(&items[i]))
+	}
+
+	return snapshots, nil
+}
+
 func (s *Service) loggerOrDefault() *slog.Logger {
 	if s.logger != nil {
 		return s.logger
@@ -241,6 +337,29 @@ func (s *Service) waitForExpandedVolume(ctx context.Context, volumeID string, re
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("timed out waiting for volume %s to expand to %d bytes, last size %d, last state %s", volumeID, requestedSizeBytes, volume.SizeBytes, volume.Status)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
+func (s *Service) waitForSnapshotStatus(ctx context.Context, snapshotID, desired string) (*backend.Snapshot, error) {
+	deadline := time.Now().Add(s.cfg.Timeout)
+
+	for {
+		snapshot, err := s.GetSnapshot(ctx, snapshotID)
+		if err != nil {
+			return nil, err
+		}
+		if snapshot.Status == desired {
+			return snapshot, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for snapshot %s to reach %s, last state %s", snapshotID, desired, snapshot.Status)
 		}
 
 		select {
@@ -377,4 +496,21 @@ type attachmentPayload struct {
 	ServerID string `json:"server_id"`
 	VolumeID string `json:"volume_id"`
 	Device   string `json:"device"`
+}
+
+func toBackendSnapshot(snapshot *blocksnapshots.Snapshot) *backend.Snapshot {
+	if snapshot == nil {
+		return nil
+	}
+
+	return &backend.Snapshot{
+		ID:             snapshot.ID,
+		Name:           snapshot.Name,
+		Description:    snapshot.Description,
+		SourceVolumeID: snapshot.VolumeID,
+		Status:         snapshot.Status,
+		SizeBytes:      int64(snapshot.Size) * gibibyte,
+		CreatedAt:      snapshot.CreatedAt,
+		ReadyToUse:     snapshot.Status == "available",
+	}
 }

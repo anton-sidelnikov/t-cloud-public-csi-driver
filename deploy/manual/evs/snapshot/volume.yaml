@@ -1,0 +1,8 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: evs-snap-src
+spec:
+  volumeSnapshotClassName: tcloud-public-evs
+  source:
+    persistentVolumeClaimName: evs-snap-src-pvc

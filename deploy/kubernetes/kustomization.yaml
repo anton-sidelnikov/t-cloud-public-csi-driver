@@ -7,4 +7,6 @@ resources:
   - csidriver.yaml
   - controller.yaml
   - node.yaml
+  - snapshot-controller.yaml
   - storageclass.yaml
+  - volumesnapshotclass.yaml

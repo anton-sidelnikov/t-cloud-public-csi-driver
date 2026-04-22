@@ -13,11 +13,7 @@ func TestDriverBootstrap(t *testing.T) {
 			t.Log("step: collect driver debug output")
 			k.collectDriverDebug(t)
 		}
-		if !cfg.keepResources {
-			t.Log("step: delete deployed CSI manifests")
-			k.deleteKustomize(t, cfg.deployPath)
-		}
 	})
 
-	installDriver(t, cfg, k)
+	ensureDriverInstalled(t, cfg, k)
 }

@@ -1,0 +1,6 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: tcloud-public-evs
+driver: csi.evs.tcloudpublic.com
+deletionPolicy: Delete

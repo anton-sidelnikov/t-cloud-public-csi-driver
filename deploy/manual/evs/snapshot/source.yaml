@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evs-snap-src-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: tcloud-public-evs-manual
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: evs-snap-src-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          mkdir -p /data/app
+          echo "snapshot smoke test $(date -Iseconds)" > /data/app/snapshot.txt
+          sync
+          tail -f /dev/null
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: evs-snap-src-pvc
