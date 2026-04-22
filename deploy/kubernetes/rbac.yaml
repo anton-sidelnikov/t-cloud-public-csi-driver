@@ -10,6 +10,12 @@ metadata:
   name: tcloud-public-csi-node-sa
   namespace: tcloud-public-csi-system
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tcloud-public-snapshot-controller-sa
+  namespace: tcloud-public-csi-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -88,6 +94,33 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  name: tcloud-public-csi-external-snapshotter-role
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots/status"]
+    verbs: ["update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
   name: tcloud-public-csi-node-role
 rules:
   - apiGroups: [""]
@@ -99,6 +132,45 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tcloud-public-snapshot-controller-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents/finalizers"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots/finalizers"]
+    verbs: ["update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -142,6 +214,19 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  name: tcloud-public-csi-snapshotter-binding
+subjects:
+  - kind: ServiceAccount
+    name: tcloud-public-csi-controller-sa
+    namespace: tcloud-public-csi-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tcloud-public-csi-external-snapshotter-role
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
   name: tcloud-public-csi-node-binding
 subjects:
   - kind: ServiceAccount
@@ -151,3 +236,16 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: tcloud-public-csi-node-role
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tcloud-public-snapshot-controller-binding
+subjects:
+  - kind: ServiceAccount
+    name: tcloud-public-snapshot-controller-sa
+    namespace: tcloud-public-csi-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tcloud-public-snapshot-controller-role

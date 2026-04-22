@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tcloud-public-csi-manual
+resources:
+  - namespace.yaml
+  - storageclass-delete.yaml
+  - storageclass-retain.yaml
+  - pvc-filesystem.yaml
+  - pod-filesystem.yaml
+  - pvc-block.yaml
+  - pod-block.yaml
+  - pvc-expand.yaml
+  - pod-expand.yaml
+  - pvc-retain.yaml
+  - pod-retain.yaml

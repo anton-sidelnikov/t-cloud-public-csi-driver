@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -35,6 +36,22 @@ type fakeControllerService struct {
 	expandSize     int64
 	expandRes      int64
 	expandErr      error
+
+	createSnapshotVolumeID string
+	createSnapshotName     string
+	createSnapshotRes      *backend.Snapshot
+	createSnapshotErr      error
+
+	deleteSnapshotID  string
+	deleteSnapshotErr error
+
+	getSnapshotID  string
+	getSnapshotRes *backend.Snapshot
+	getSnapshotErr error
+
+	listSnapshotsReq backend.ListSnapshotsRequest
+	listSnapshotsRes []*backend.Snapshot
+	listSnapshotsErr error
 }
 
 func (f *fakeControllerService) CreateVolume(_ context.Context, req backend.CreateVolumeRequest) (*backend.Volume, error) {
@@ -63,6 +80,27 @@ func (f *fakeControllerService) ExpandVolume(_ context.Context, volumeID string,
 	f.expandVolumeID = volumeID
 	f.expandSize = size
 	return f.expandRes, f.expandErr
+}
+
+func (f *fakeControllerService) CreateSnapshot(_ context.Context, volumeID, name string) (*backend.Snapshot, error) {
+	f.createSnapshotVolumeID = volumeID
+	f.createSnapshotName = name
+	return f.createSnapshotRes, f.createSnapshotErr
+}
+
+func (f *fakeControllerService) DeleteSnapshot(_ context.Context, snapshotID string) error {
+	f.deleteSnapshotID = snapshotID
+	return f.deleteSnapshotErr
+}
+
+func (f *fakeControllerService) GetSnapshot(_ context.Context, snapshotID string) (*backend.Snapshot, error) {
+	f.getSnapshotID = snapshotID
+	return f.getSnapshotRes, f.getSnapshotErr
+}
+
+func (f *fakeControllerService) ListSnapshots(_ context.Context, req backend.ListSnapshotsRequest) ([]*backend.Snapshot, error) {
+	f.listSnapshotsReq = req
+	return f.listSnapshotsRes, f.listSnapshotsErr
 }
 
 func TestCreateVolumeValidatesRequest(t *testing.T) {
@@ -141,6 +179,78 @@ func TestCreateVolumeUsesExplicitAvailabilityZone(t *testing.T) {
 	if service.createVolumeReq.AvailabilityZone != "eu-de-02" {
 		t.Fatalf("unexpected availability zone: %q", service.createVolumeReq.AvailabilityZone)
 	}
+}
+
+func TestCreateVolumeFromSnapshotUsesSnapshotSizeWhenCapacityMissing(t *testing.T) {
+	service := &fakeControllerService{
+		getSnapshotRes: &backend.Snapshot{
+			ID:             "snap-1",
+			SourceVolumeID: "vol-src",
+			SizeBytes:      10 * 1024 * 1024 * 1024,
+			ReadyToUse:     true,
+		},
+		createVolumeRes: &backend.Volume{
+			ID:               "vol-1",
+			Name:             "pvc-1",
+			Status:           "available",
+			AvailabilityZone: "eu-de-01",
+			VolumeType:       "SSD",
+			SizeBytes:        10 * 1024 * 1024 * 1024,
+		},
+	}
+	server := newControllerServer(config.Config{AvailabilityZone: "eu-de-01"}, backendevs.New(), service)
+
+	resp, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "snap-1"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateVolume returned error: %v", err)
+	}
+	if service.getSnapshotID != "snap-1" {
+		t.Fatalf("unexpected snapshot lookup id: %q", service.getSnapshotID)
+	}
+	if service.createVolumeReq.SnapshotID != "snap-1" {
+		t.Fatalf("unexpected snapshot source id: %q", service.createVolumeReq.SnapshotID)
+	}
+	if service.createVolumeReq.SizeBytes != 10*1024*1024*1024 {
+		t.Fatalf("unexpected restored volume size: %d", service.createVolumeReq.SizeBytes)
+	}
+	if resp.GetVolume().GetVolumeId() != "vol-1" {
+		t.Fatalf("unexpected volume id: %q", resp.GetVolume().GetVolumeId())
+	}
+	if resp.GetVolume().GetContentSource().GetSnapshot().GetSnapshotId() != "snap-1" {
+		t.Fatalf("unexpected response content source: %+v", resp.GetVolume().GetContentSource())
+	}
+}
+
+func TestCreateVolumeFromSnapshotRejectsSmallerRequestedSize(t *testing.T) {
+	service := &fakeControllerService{
+		getSnapshotRes: &backend.Snapshot{
+			ID:             "snap-1",
+			SourceVolumeID: "vol-src",
+			SizeBytes:      10,
+			ReadyToUse:     true,
+		},
+	}
+	server := newControllerServer(config.Config{AvailabilityZone: "eu-de-01"}, backendevs.New(), service)
+
+	_, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name: "pvc-1",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 9,
+		},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "snap-1"},
+			},
+		},
+	})
+	assertCode(t, err, codes.InvalidArgument)
 }
 
 func TestControllerPublishVolumeReturnsPublishContext(t *testing.T) {
@@ -274,6 +384,109 @@ func TestDeleteVolumeRequiresVolumeID(t *testing.T) {
 
 	_, err := server.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{})
 	assertCode(t, err, codes.InvalidArgument)
+}
+
+func TestCreateSnapshotReturnsExistingSnapshotForIdempotency(t *testing.T) {
+	createdAt := time.Unix(100, 0).UTC()
+	service := &fakeControllerService{
+		listSnapshotsRes: []*backend.Snapshot{{
+			ID:             "snap-1",
+			Name:           "snap-name",
+			SourceVolumeID: "vol-1",
+			SizeBytes:      10,
+			CreatedAt:      createdAt,
+			ReadyToUse:     true,
+		}},
+	}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	resp, err := server.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-1",
+		Name:           "snap-name",
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot returned error: %v", err)
+	}
+	if service.createSnapshotVolumeID != "" {
+		t.Fatal("did not expect create snapshot call when existing snapshot is returned")
+	}
+	if resp.GetSnapshot().GetSnapshotId() != "snap-1" {
+		t.Fatalf("unexpected snapshot id: %q", resp.GetSnapshot().GetSnapshotId())
+	}
+}
+
+func TestCreateSnapshotCreatesNewSnapshot(t *testing.T) {
+	service := &fakeControllerService{
+		createSnapshotRes: &backend.Snapshot{
+			ID:             "snap-1",
+			Name:           "snap-name",
+			SourceVolumeID: "vol-1",
+			SizeBytes:      10,
+			ReadyToUse:     true,
+		},
+	}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	resp, err := server.CreateSnapshot(context.Background(), &csi.CreateSnapshotRequest{
+		SourceVolumeId: "vol-1",
+		Name:           "snap-name",
+	})
+	if err != nil {
+		t.Fatalf("CreateSnapshot returned error: %v", err)
+	}
+	if service.createSnapshotVolumeID != "vol-1" || service.createSnapshotName != "snap-name" {
+		t.Fatalf("unexpected create snapshot request: volume=%q name=%q", service.createSnapshotVolumeID, service.createSnapshotName)
+	}
+	if resp.GetSnapshot().GetSourceVolumeId() != "vol-1" {
+		t.Fatalf("unexpected source volume id: %q", resp.GetSnapshot().GetSourceVolumeId())
+	}
+}
+
+func TestDeleteSnapshotRequiresSnapshotID(t *testing.T) {
+	server := newControllerServer(config.Config{}, backendevs.New(), &fakeControllerService{})
+
+	_, err := server.DeleteSnapshot(context.Background(), &csi.DeleteSnapshotRequest{})
+	assertCode(t, err, codes.InvalidArgument)
+}
+
+func TestDeleteSnapshotPassesIdentifier(t *testing.T) {
+	service := &fakeControllerService{}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	_, err := server.DeleteSnapshot(context.Background(), &csi.DeleteSnapshotRequest{SnapshotId: "snap-1"})
+	if err != nil {
+		t.Fatalf("DeleteSnapshot returned error: %v", err)
+	}
+	if service.deleteSnapshotID != "snap-1" {
+		t.Fatalf("unexpected snapshot delete id: %q", service.deleteSnapshotID)
+	}
+}
+
+func TestListSnapshotsSupportsPagination(t *testing.T) {
+	service := &fakeControllerService{
+		listSnapshotsRes: []*backend.Snapshot{
+			{ID: "snap-1", SourceVolumeID: "vol-1", SizeBytes: 1, ReadyToUse: true},
+			{ID: "snap-2", SourceVolumeID: "vol-1", SizeBytes: 2, ReadyToUse: true},
+		},
+	}
+	server := newControllerServer(config.Config{}, backendevs.New(), service)
+
+	resp, err := server.ListSnapshots(context.Background(), &csi.ListSnapshotsRequest{
+		SourceVolumeId: "vol-1",
+		MaxEntries:     1,
+	})
+	if err != nil {
+		t.Fatalf("ListSnapshots returned error: %v", err)
+	}
+	if len(resp.Entries) != 1 || resp.Entries[0].GetSnapshot().GetSnapshotId() != "snap-1" {
+		t.Fatalf("unexpected list snapshots response: %+v", resp.Entries)
+	}
+	if resp.NextToken != "1" {
+		t.Fatalf("unexpected next token: %q", resp.NextToken)
+	}
+	if service.listSnapshotsReq.SourceVolumeID != "vol-1" {
+		t.Fatalf("unexpected list request: %+v", service.listSnapshotsReq)
+	}
 }
 
 func TestNodeGetInfoUsesConfig(t *testing.T) {

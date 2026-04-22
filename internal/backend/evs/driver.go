@@ -81,6 +81,7 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		VolumeType:       params[paramVolumeType],
 		Description:      params[paramDescription],
 		Metadata:         volumeMetadata(params),
+		SnapshotID:       snapshotSourceID(req),
 	}, nil
 }
 
@@ -107,6 +108,8 @@ func (d *Driver) ControllerCapabilities() []csi.ControllerServiceCapability_RPC_
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 }
 
@@ -158,4 +161,19 @@ func volumeMetadata(params map[string]string) map[string]string {
 	}
 
 	return metadata
+}
+
+func snapshotSourceID(req *csi.CreateVolumeRequest) string {
+	if req == nil {
+		return ""
+	}
+	source := req.GetVolumeContentSource()
+	if source == nil {
+		return ""
+	}
+	snapshot := source.GetSnapshot()
+	if snapshot == nil {
+		return ""
+	}
+	return strings.TrimSpace(snapshot.GetSnapshotId())
 }

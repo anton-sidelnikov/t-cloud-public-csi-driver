@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	blocksnapshots "github.com/opentelekomcloud/gophertelekomcloud/openstack/blockstorage/v3/snapshots"
+
 	"t-cloud-public-csi-driver/internal/backend"
 )
 
@@ -74,6 +76,29 @@ func TestVolumePayloadToDomain(t *testing.T) {
 	}
 	if len(volume.Attachments) != 1 || volume.Attachments[0].Device != "/dev/vdb" {
 		t.Fatalf("unexpected attachments: %+v", volume.Attachments)
+	}
+}
+
+func TestBackendSnapshotMapping(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	snapshot := toBackendSnapshot(&blocksnapshots.Snapshot{
+		ID:          "snap-1",
+		Name:        "snap-name",
+		Description: "desc",
+		VolumeID:    "vol-1",
+		Status:      "available",
+		Size:        2,
+		CreatedAt:   now,
+	})
+
+	if snapshot.ID != "snap-1" || snapshot.SourceVolumeID != "vol-1" {
+		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
+	}
+	if snapshot.SizeBytes != 2*gibibyte {
+		t.Fatalf("unexpected snapshot size: %d", snapshot.SizeBytes)
+	}
+	if !snapshot.ReadyToUse {
+		t.Fatal("expected snapshot to be ready to use")
 	}
 }
 
