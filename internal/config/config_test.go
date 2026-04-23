@@ -87,7 +87,7 @@ func TestFromEnvRequiresMandatoryValues(t *testing.T) {
 	}
 }
 
-func TestFallbackParsersIgnoreInvalidValues(t *testing.T) {
+func TestFromEnvRejectsInvalidTypedValues(t *testing.T) {
 	t.Setenv("OS_REGION", "eu-de")
 	t.Setenv("OS_AUTH_URL", "https://iam.example.com/v3")
 	t.Setenv("OS_USERNAME", "tester")
@@ -96,15 +96,8 @@ func TestFallbackParsersIgnoreInvalidValues(t *testing.T) {
 	t.Setenv("CSI_MAX_VOLUMES_PER_NODE", "invalid")
 	t.Setenv("CSI_REQUEST_TIMEOUT", "invalid")
 
-	cfg, err := FromEnv()
-	if err != nil {
-		t.Fatalf("FromEnv returned error: %v", err)
-	}
-
-	if cfg.MaxVolumesPerNode != 32 {
-		t.Fatalf("unexpected fallback max volumes: %d", cfg.MaxVolumesPerNode)
-	}
-	if cfg.Timeout != 2*time.Minute {
-		t.Fatalf("unexpected fallback timeout: %s", cfg.Timeout)
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid typed values")
 	}
 }

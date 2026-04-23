@@ -2,10 +2,10 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/caarlos0/env/v11"
 )
 
 const (
@@ -15,42 +15,31 @@ const (
 )
 
 type Config struct {
-	Backend          string
-	DriverName       string
-	Endpoint         string
-	NodeID           string
-	Region           string
-	AvailabilityZone string
+	Backend          string `env:"CSI_BACKEND" envDefault:"evs"`
+	DriverName       string `env:"CSI_DRIVER_NAME" envDefault:"csi.evs.tcloudpublic.com"`
+	Endpoint         string `env:"CSI_ENDPOINT" envDefault:"unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock"`
+	NodeID           string `env:"CSI_NODE_ID"`
+	Region           string `env:"OS_REGION,required,notEmpty"`
+	AvailabilityZone string `env:"OS_AVAILABILITY_ZONE"`
 
-	AuthURL     string
-	DomainName  string
-	UserName    string
-	Password    string
-	ProjectID   string
-	ProjectName string
+	AuthURL     string `env:"OS_AUTH_URL,required,notEmpty"`
+	DomainName  string `env:"OS_DOMAIN_NAME"`
+	UserName    string `env:"OS_USERNAME,required,notEmpty"`
+	Password    string `env:"OS_PASSWORD,required,notEmpty"`
+	ProjectID   string `env:"OS_PROJECT_ID"`
+	ProjectName string `env:"OS_PROJECT_NAME"`
 
-	MaxVolumesPerNode int64
-	Timeout           time.Duration
+	MaxVolumesPerNode int64         `env:"CSI_MAX_VOLUMES_PER_NODE" envDefault:"32"`
+	Timeout           time.Duration `env:"CSI_REQUEST_TIMEOUT" envDefault:"2m"`
 }
 
 func FromEnv() (Config, error) {
-	cfg := Config{
-		Backend:           envOrDefault("CSI_BACKEND", defaultBackend),
-		DriverName:        envOrDefault("CSI_DRIVER_NAME", defaultDriverName),
-		Endpoint:          envOrDefault("CSI_ENDPOINT", defaultEndpoint),
-		NodeID:            strings.TrimSpace(os.Getenv("CSI_NODE_ID")),
-		Region:            strings.TrimSpace(os.Getenv("OS_REGION")),
-		AvailabilityZone:  strings.TrimSpace(os.Getenv("OS_AVAILABILITY_ZONE")),
-		AuthURL:           strings.TrimSpace(os.Getenv("OS_AUTH_URL")),
-		DomainName:        strings.TrimSpace(os.Getenv("OS_DOMAIN_NAME")),
-		UserName:          strings.TrimSpace(os.Getenv("OS_USERNAME")),
-		Password:          os.Getenv("OS_PASSWORD"),
-		ProjectID:         strings.TrimSpace(os.Getenv("OS_PROJECT_ID")),
-		ProjectName:       strings.TrimSpace(os.Getenv("OS_PROJECT_NAME")),
-		MaxVolumesPerNode: envInt64OrDefault("CSI_MAX_VOLUMES_PER_NODE", 32),
-		Timeout:           envDurationOrDefault("CSI_REQUEST_TIMEOUT", 2*time.Minute),
+	cfg, err := env.ParseAs[Config]()
+	if err != nil {
+		return Config{}, fmt.Errorf("parse environment config: %w", err)
 	}
 
+	cfg.normalize()
 	if cfg.Region == "" {
 		return Config{}, fmt.Errorf("OS_REGION is required")
 	}
@@ -60,7 +49,7 @@ func FromEnv() (Config, error) {
 	if cfg.UserName == "" {
 		return Config{}, fmt.Errorf("OS_USERNAME is required")
 	}
-	if cfg.Password == "" {
+	if strings.TrimSpace(cfg.Password) == "" {
 		return Config{}, fmt.Errorf("OS_PASSWORD is required")
 	}
 	if cfg.ProjectID == "" && cfg.ProjectName == "" {
@@ -70,37 +59,16 @@ func FromEnv() (Config, error) {
 	return cfg, nil
 }
 
-func envOrDefault(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func envInt64OrDefault(key string, fallback int64) int64 {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-
-	value, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return fallback
-	}
-
-	return value
-}
-
-func envDurationOrDefault(key string, fallback time.Duration) time.Duration {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-
-	value, err := time.ParseDuration(raw)
-	if err != nil {
-		return fallback
-	}
-
-	return value
+func (c *Config) normalize() {
+	c.Backend = strings.TrimSpace(c.Backend)
+	c.DriverName = strings.TrimSpace(c.DriverName)
+	c.Endpoint = strings.TrimSpace(c.Endpoint)
+	c.NodeID = strings.TrimSpace(c.NodeID)
+	c.Region = strings.TrimSpace(c.Region)
+	c.AvailabilityZone = strings.TrimSpace(c.AvailabilityZone)
+	c.AuthURL = strings.TrimSpace(c.AuthURL)
+	c.DomainName = strings.TrimSpace(c.DomainName)
+	c.UserName = strings.TrimSpace(c.UserName)
+	c.ProjectID = strings.TrimSpace(c.ProjectID)
+	c.ProjectName = strings.TrimSpace(c.ProjectName)
 }
