@@ -103,6 +103,14 @@ tidy: dirs
 .PHONY: check
 check: fmt-check vet test
 
+.PHONY: image
+image:
+	@$(BUILDX) --load \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE) .
+
 .PHONY: functional-image
 functional-image:
 	@$(BUILDX) --load \
