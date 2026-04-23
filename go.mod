@@ -3,6 +3,7 @@ module t-cloud-public-csi-driver
 go 1.25.0
 
 require (
+	github.com/caarlos0/env/v11 v11.4.0
 	github.com/container-storage-interface/spec v1.12.0
 	github.com/opentelekomcloud/gophertelekomcloud v0.9.6-0.20260329203346-ce1539b84cdc
 	google.golang.org/grpc v1.80.0
