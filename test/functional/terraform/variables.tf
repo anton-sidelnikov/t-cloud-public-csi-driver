@@ -151,7 +151,7 @@ variable "node_flavor_id" {
 variable "node_os" {
   description = "CCE worker node operating system."
   type        = string
-  default     = "EulerOS 2.9"
+  default     = "HCE OS 2.0"
 }
 
 variable "node_agency_name" {
