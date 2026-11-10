@@ -12,13 +12,25 @@ import (
 	"t-cloud-public-csi-driver/internal/config"
 )
 
+const (
+	defaultSysBlockDir = "/sys/block"
+	defaultDevDir      = "/dev"
+	defaultByIDDir     = "/dev/disk/by-id"
+
+	// Shorter serials are not considered a reliable volume identity.
+	minSerialMatchLength = 8
+)
+
 type devicePathResolver interface {
 	ResolveDevicePath(ctx context.Context, volumeID, reportedPath string) (string, error)
 }
 
 type osDevicePathResolver struct {
-	timeout time.Duration
-	logger  *slog.Logger
+	timeout     time.Duration
+	logger      *slog.Logger
+	sysBlockDir string
+	devDir      string
+	byIDDir     string
 }
 
 func newDevicePathResolver(cfg config.Config) devicePathResolver {
@@ -28,8 +40,11 @@ func newDevicePathResolver(cfg config.Config) devicePathResolver {
 	}
 
 	return &osDevicePathResolver{
-		timeout: timeout,
-		logger:  slog.Default().With("component", "node-device-resolver"),
+		timeout:     timeout,
+		logger:      slog.Default().With("component", "node-device-resolver"),
+		sysBlockDir: defaultSysBlockDir,
+		devDir:      defaultDevDir,
+		byIDDir:     defaultByIDDir,
 	}
 }
 
@@ -39,12 +54,12 @@ func (r *osDevicePathResolver) ResolveDevicePath(ctx context.Context, volumeID, 
 	logger.Info("waiting for node device path")
 
 	for {
-		resolvedPath, matchedPath, ok, err := resolveExistingDevicePath(volumeID, reportedPath)
+		resolvedPath, source, ok, err := r.resolveOnce(volumeID, reportedPath)
 		if err != nil {
 			return "", err
 		}
 		if ok {
-			logger.Info("resolved node device path", "matched_path", matchedPath, "resolved_path", resolvedPath)
+			logger.Info("resolved node device path", "match_source", source, "resolved_path", resolvedPath)
 			return resolvedPath, nil
 		}
 		if time.Now().After(deadline) {
@@ -66,61 +81,98 @@ func (r *osDevicePathResolver) loggerOrDefault() *slog.Logger {
 	return slog.Default().With("component", "node-device-resolver")
 }
 
-func resolveExistingDevicePath(volumeID, reportedPath string) (string, string, bool, error) {
-	candidates := devicePathCandidates(volumeID, reportedPath)
-	for _, candidate := range candidates {
-		_, err := os.Stat(candidate)
+// resolveOnce identifies the device by its serial first, because the guest kernel
+// can name disks in a different order than the cloud API reports them.
+func (r *osDevicePathResolver) resolveOnce(volumeID, reportedPath string) (string, string, bool, error) {
+	if path, ok := r.findBySerial(volumeID); ok {
+		return path, "serial", true, nil
+	}
+
+	if path, ok, err := r.findByID(volumeID); err != nil || ok {
+		return path, "by-id", ok, err
+	}
+
+	if reportedPath == "" {
+		return "", "", false, nil
+	}
+	resolved, err := filepath.EvalSymlinks(reportedPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", "", false, nil
+		}
+		return "", "", false, err
+	}
+	// The reported path is trusted only when the device has no readable serial;
+	// a serial belonging to another volume means the cloud-reported name is stale.
+	if serial := r.readSerial(filepath.Base(resolved)); serial != "" {
+		r.loggerOrDefault().Warn("reported device path belongs to another volume", "volume_id", volumeID, "reported_path", reportedPath, "device_serial", serial)
+		return "", "", false, nil
+	}
+	return resolved, "reported-path", true, nil
+}
+
+func (r *osDevicePathResolver) findBySerial(volumeID string) (string, bool) {
+	entries, err := os.ReadDir(r.sysBlockDir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if serialMatchesVolume(r.readSerial(entry.Name()), volumeID) {
+			path := filepath.Join(r.devDir, entry.Name())
+			if _, err := os.Stat(path); err == nil {
+				return path, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (r *osDevicePathResolver) findByID(volumeID string) (string, bool, error) {
+	entries, err := os.ReadDir(r.byIDDir)
+	if err != nil {
+		return "", false, nil
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.Contains(name, "-part") || !byIDNameMatchesVolume(name, volumeID) {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(filepath.Join(r.byIDDir, name))
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return "", "", false, err
+			return "", false, err
 		}
-
-		resolvedPath, err := filepath.EvalSymlinks(candidate)
-		if err == nil {
-			return resolvedPath, candidate, true, nil
-		}
-		if os.IsNotExist(err) {
-			continue
-		}
-
-		return candidate, candidate, true, nil
+		return resolved, true, nil
 	}
-
-	return "", "", false, nil
+	return "", false, nil
 }
 
-func devicePathCandidates(volumeID, reportedPath string) []string {
-	candidates := []string{reportedPath}
-
-	noHyphen := strings.ReplaceAll(strings.ToLower(volumeID), "-", "")
-	shortNoHyphen := noHyphen
-	if len(shortNoHyphen) > 20 {
-		shortNoHyphen = shortNoHyphen[:20]
+func (r *osDevicePathResolver) readSerial(deviceName string) string {
+	data, err := os.ReadFile(filepath.Join(r.sysBlockDir, deviceName, "serial"))
+	if err != nil {
+		return ""
 	}
+	return strings.TrimSpace(string(data))
+}
 
-	patterns := []string{
-		filepath.Join("/dev/disk/by-id", "*"+strings.ToLower(volumeID)+"*"),
-		filepath.Join("/dev/disk/by-id", "*"+strings.ToUpper(volumeID)+"*"),
-		filepath.Join("/dev/disk/by-id", "*"+noHyphen+"*"),
-		filepath.Join("/dev/disk/by-id", "*"+shortNoHyphen+"*"),
+// serialMatchesVolume handles virtio serials, which are the volume ID truncated to 20 characters.
+func serialMatchesVolume(serial, volumeID string) bool {
+	serial = strings.ToLower(strings.TrimSpace(serial))
+	if len(serial) < minSerialMatchLength || volumeID == "" {
+		return false
 	}
+	id := strings.ToLower(volumeID)
+	return strings.HasPrefix(id, serial) || strings.HasPrefix(strings.ReplaceAll(id, "-", ""), serial)
+}
 
-	seen := map[string]struct{}{reportedPath: {}}
-	for _, pattern := range patterns {
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			continue
-		}
-		for _, match := range matches {
-			if _, ok := seen[match]; ok {
-				continue
-			}
-			seen[match] = struct{}{}
-			candidates = append(candidates, match)
+func byIDNameMatchesVolume(name, volumeID string) bool {
+	name = strings.ToLower(name)
+	for _, prefix := range []string{"virtio-", "scsi-0qemu_qemu_harddisk_", "scsi-", "wwn-"} {
+		if strings.HasPrefix(name, prefix) {
+			return serialMatchesVolume(strings.TrimPrefix(name, prefix), volumeID)
 		}
 	}
-
-	return candidates
+	return false
 }
