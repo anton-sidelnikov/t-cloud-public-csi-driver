@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evs-zone-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: tcloud-public-evs-manual
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: evs-zone-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          mkdir -p /data/app
+          echo "zone smoke test $(date -Iseconds)" > /data/app/zone.txt
+          tail -f /dev/null
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: evs-zone-pvc

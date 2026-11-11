@@ -138,3 +138,53 @@ func TestBuildCreateVolumeRequestRejectsEmptyMetadataKey(t *testing.T) {
 		t.Fatal("expected empty metadata key error")
 	}
 }
+
+func TestBuildCreateVolumeRequestSelectsAvailabilityZone(t *testing.T) {
+	zones := func(names ...string) []*csi.Topology {
+		out := make([]*csi.Topology, 0, len(names))
+		for _, name := range names {
+			out = append(out, &csi.Topology{Segments: map[string]string{topologyKey: name}})
+		}
+		return out
+	}
+	cases := []struct {
+		name         string
+		param        string
+		requirements *csi.TopologyRequirement
+		want         string
+		wantErr      bool
+	}{
+		{name: "config fallback", want: "eu-de-01"},
+		{name: "preferred wins over requisite and config", requirements: &csi.TopologyRequirement{Requisite: zones("eu-de-01", "eu-de-02"), Preferred: zones("eu-de-02")}, want: "eu-de-02"},
+		{name: "requisite without preferred", requirements: &csi.TopologyRequirement{Requisite: zones("eu-de-03")}, want: "eu-de-03"},
+		{name: "parameter within requisite", param: "eu-de-01", requirements: &csi.TopologyRequirement{Requisite: zones("eu-de-01", "eu-de-02"), Preferred: zones("eu-de-02")}, want: "eu-de-01"},
+		{name: "parameter outside requisite", param: "eu-de-01", requirements: &csi.TopologyRequirement{Requisite: zones("eu-de-02")}, wantErr: true},
+		{name: "parameter without topology", param: "eu-de-03", want: "eu-de-03"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := map[string]string{}
+			if tc.param != "" {
+				params[paramAvailabilityZone] = tc.param
+			}
+			req, err := New().BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+				Name:                      "pvc-1",
+				CapacityRange:             &csi.CapacityRange{RequiredBytes: 10},
+				Parameters:                params,
+				AccessibilityRequirements: tc.requirements,
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got zone %q", req.AvailabilityZone)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BuildCreateVolumeRequest: %v", err)
+			}
+			if req.AvailabilityZone != tc.want {
+				t.Fatalf("got zone %q want %q", req.AvailabilityZone, tc.want)
+			}
+		})
+	}
+}

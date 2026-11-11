@@ -4,6 +4,7 @@ Manual EVS validation is now split by scenario:
 
 - [common](common/README.md): filesystem, raw block, expansion, and reclaim-policy checks
 - [snapshot](snapshot/README.md): ordered snapshot create and restore workflow
+- [topology](topology/README.md): availability zone autodetection and topology-aware provisioning
 
 Compatibility entrypoint:
 

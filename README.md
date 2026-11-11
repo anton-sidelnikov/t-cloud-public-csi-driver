@@ -268,7 +268,7 @@ The EVS backend validates `StorageClass.parameters` explicitly. Unsupported keys
 Supported parameters:
 
 - `volumeType`: EVS volume type, for example `SSD`.
-- `availabilityZone`: EVS availability zone override. If omitted, the driver uses `OS_AVAILABILITY_ZONE`.
+- `availabilityZone`: EVS availability zone override. If omitted, the driver uses the zone requested by the scheduler (topology `topology.evs.tcloudpublic.com/zone`; with `WaitForFirstConsumer` this is the selected node's zone), and only then `OS_AVAILABILITY_ZONE`. An override outside the requested topology is rejected. To restrict zones, prefer `allowedTopologies` over this parameter.
 - `description`: optional EVS volume description.
 - `csi.storage.k8s.io/fstype`: accepted for Kubernetes CSI compatibility. Filesystem formatting is still driven by the CSI volume capability on the node side.
 - `metadata.<key>`: optional EVS metadata. The `metadata.` prefix is stripped before sending metadata to EVS.
@@ -286,7 +286,6 @@ reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 parameters:
   volumeType: SSD
-  availabilityZone: eu-de-01
   description: Kubernetes EVS volume
   metadata.environment: dev
 ```
@@ -311,6 +310,8 @@ The binary reads its configuration from environment variables:
 - `OS_PROJECT_NAME`
 
 Use either `OS_PROJECT_ID` or `OS_PROJECT_NAME`.
+
+`OS_AVAILABILITY_ZONE` is optional. Each node reads its availability zone from the ECS metadata service (`http://169.254.169.254/openstack/latest/meta_data.json`) and reports it as the `topology.evs.tcloudpublic.com/zone` topology. `OS_AVAILABILITY_ZONE` is used only when the metadata service is unreachable, and as the controller default when a request has no topology. Node registration fails if neither source provides a zone. If a node's reported zone changes, remove the stale `topology.evs.tcloudpublic.com/zone` node label before restarting the node plugin, otherwise registration fails with a topology collision.
 
 `CSI_BACKEND` currently supports:
 

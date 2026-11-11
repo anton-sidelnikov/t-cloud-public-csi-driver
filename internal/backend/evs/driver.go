@@ -2,6 +2,7 @@ package evs
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -74,10 +75,15 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		return backend.CreateVolumeRequest{}, err
 	}
 
+	zone, err := selectAvailabilityZone(params[paramAvailabilityZone], req.GetAccessibilityRequirements(), cfg.AvailabilityZone)
+	if err != nil {
+		return backend.CreateVolumeRequest{}, err
+	}
+
 	return backend.CreateVolumeRequest{
 		Name:             req.GetName(),
 		SizeBytes:        req.GetCapacityRange().GetRequiredBytes(),
-		AvailabilityZone: valueOrDefault(params[paramAvailabilityZone], cfg.AvailabilityZone),
+		AvailabilityZone: zone,
 		VolumeType:       params[paramVolumeType],
 		Description:      params[paramDescription],
 		Metadata:         volumeMetadata(params),
@@ -120,11 +126,33 @@ func (d *Driver) NodeCapabilities() []csi.NodeServiceCapability_RPC_Type {
 	}
 }
 
-func valueOrDefault(value, fallback string) string {
-	if value != "" {
-		return value
+// selectAvailabilityZone picks the volume AZ: an explicit StorageClass parameter, then the
+// scheduler's preferred and requisite topology, then OS_AVAILABILITY_ZONE.
+func selectAvailabilityZone(param string, requirements *csi.TopologyRequirement, fallback string) (string, error) {
+	requisite := topologyZones(requirements.GetRequisite())
+	if param != "" {
+		if len(requisite) > 0 && !slices.Contains(requisite, param) {
+			return "", fmt.Errorf("StorageClass parameter %s=%q is not in the accessible topology %v", paramAvailabilityZone, param, requisite)
+		}
+		return param, nil
 	}
-	return fallback
+	if preferred := topologyZones(requirements.GetPreferred()); len(preferred) > 0 {
+		return preferred[0], nil
+	}
+	if len(requisite) > 0 {
+		return requisite[0], nil
+	}
+	return fallback, nil
+}
+
+func topologyZones(topologies []*csi.Topology) []string {
+	zones := make([]string, 0, len(topologies))
+	for _, topology := range topologies {
+		if zone := strings.TrimSpace(topology.GetSegments()[topologyKey]); zone != "" && !slices.Contains(zones, zone) {
+			zones = append(zones, zone)
+		}
+	}
+	return zones
 }
 
 func validateAndNormalizeParameters(params map[string]string) (map[string]string, error) {
