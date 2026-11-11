@@ -106,6 +106,7 @@ spec:
                 secretKeyRef:
                   name: tcloud-public-csi-cloud-config
                   key: OS_AVAILABILITY_ZONE
+                  optional: true
             - name: OS_DOMAIN_NAME
               valueFrom:
                 secretKeyRef:
