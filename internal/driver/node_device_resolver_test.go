@@ -21,42 +21,116 @@ func (r *fakeDeviceResolver) ResolveDevicePath(_ context.Context, volumeID, repo
 	return r.resolvedPath, r.err
 }
 
-func TestDevicePathCandidatesStartWithReportedPath(t *testing.T) {
-	volumeID := "123e4567-e89b-12d3-a456-426614174000"
-	candidates := devicePathCandidates(volumeID, "/dev/vdc")
-	if len(candidates) == 0 || candidates[0] != "/dev/vdc" {
-		t.Fatalf("unexpected candidates: %+v", candidates)
+type fakeHost struct {
+	sys, dev, byID string
+}
+
+func newFakeHost(t *testing.T) fakeHost {
+	t.Helper()
+	root := t.TempDir()
+	h := fakeHost{sys: filepath.Join(root, "sys"), dev: filepath.Join(root, "dev"), byID: filepath.Join(root, "by-id")}
+	for _, d := range []string{h.sys, h.dev, h.byID} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return h
+}
+
+func (h fakeHost) addDisk(t *testing.T, name, serial string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(h.sys, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if serial != "" {
+		if err := os.WriteFile(filepath.Join(h.sys, name, "serial"), []byte(serial+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(h.dev, name)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func (h fakeHost) resolver() *osDevicePathResolver {
+	return &osDevicePathResolver{timeout: 10 * time.Millisecond, sysBlockDir: h.sys, devDir: h.dev, byIDDir: h.byID}
+}
+
+func TestResolverPrefersSerialOverMismatchedReportedPath(t *testing.T) {
+	h := newFakeHost(t)
+	h.addDisk(t, "vdb", "93e12c02-60a5-412e-9")
+	reported := h.addDisk(t, "vdd", "541f94fb-1111-2222-3")
+	want := h.addDisk(t, "vde", "8d54fc61-aaaa-bbbb-c")
+
+	got, err := h.resolver().ResolveDevicePath(context.Background(), "8d54fc61-aaaa-bbbb-cccc-dddddddddddd", reported)
+	if err != nil {
+		t.Fatalf("ResolveDevicePath: %v", err)
+	}
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
-func TestResolveExistingDevicePathUsesSymlinkTarget(t *testing.T) {
-	dir := t.TempDir()
+func TestResolverRejectsReportedPathOwnedByAnotherVolume(t *testing.T) {
+	h := newFakeHost(t)
+	reported := h.addDisk(t, "vdb", "93e12c02-60a5-412e-9")
 
-	devicePath := filepath.Join(dir, "vdc")
-	targetPath := filepath.Join(dir, "disk")
-	if err := os.WriteFile(targetPath, []byte("device"), 0o644); err != nil {
-		t.Fatalf("write target: %v", err)
+	_, err := h.resolver().ResolveDevicePath(context.Background(), "8d54fc61-aaaa-bbbb-cccc-dddddddddddd", reported)
+	if err == nil {
+		t.Fatal("expected timeout instead of using another volume's device")
 	}
-	if err := os.Symlink(targetPath, devicePath); err != nil {
-		t.Fatalf("symlink: %v", err)
+}
+
+func TestResolverUsesByIDLink(t *testing.T) {
+	h := newFakeHost(t)
+	target := h.addDisk(t, "vdc", "")
+	if err := os.Symlink(target, filepath.Join(h.byID, "virtio-874a8f3e-0000-1111-2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(h.byID, "virtio-874a8f3e-0000-1111-2-part1")); err != nil {
+		t.Fatal(err)
 	}
 
-	got, matched, ok, err := resolveExistingDevicePath("vol-1", devicePath)
+	got, err := h.resolver().ResolveDevicePath(context.Background(), "874a8f3e-0000-1111-2222-333333333333", "")
 	if err != nil {
-		t.Fatalf("resolveExistingDevicePath returned error: %v", err)
+		t.Fatalf("ResolveDevicePath: %v", err)
 	}
-	if !ok {
-		t.Fatal("expected path to resolve")
-	}
-	want, err := filepath.EvalSymlinks(targetPath)
-	if err != nil {
-		t.Fatalf("eval target symlinks: %v", err)
-	}
+	want, _ := filepath.EvalSymlinks(target)
 	if got != want {
-		t.Fatalf("unexpected resolved path: got %q want %q", got, want)
+		t.Fatalf("got %q want %q", got, want)
 	}
-	if matched != devicePath {
-		t.Fatalf("unexpected matched path: got %q want %q", matched, devicePath)
+}
+
+func TestResolverFallsBackToReportedPathWithoutSerial(t *testing.T) {
+	h := newFakeHost(t)
+	reported := h.addDisk(t, "vdc", "")
+
+	got, err := h.resolver().ResolveDevicePath(context.Background(), "874a8f3e-0000-1111-2222-333333333333", reported)
+	if err != nil {
+		t.Fatalf("ResolveDevicePath: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(reported)
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestSerialMatchesVolume(t *testing.T) {
+	id := "93e12c02-60a5-412e-9abc-def012345678"
+	cases := map[string]bool{
+		"93e12c02-60a5-412e-9": true,
+		"93E12C0260A5412E9ABC": true,
+		"93e12c02":             true,
+		"93e1":                 false,
+		"541f94fb-1111-2222-3": false,
+		"":                     false,
+	}
+	for serial, want := range cases {
+		if got := serialMatchesVolume(serial, id); got != want {
+			t.Errorf("serialMatchesVolume(%q) = %v, want %v", serial, got, want)
+		}
 	}
 }
 
