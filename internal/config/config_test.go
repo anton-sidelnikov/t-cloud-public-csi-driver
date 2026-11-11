@@ -18,13 +18,13 @@ func TestFromEnvUsesDefaultsAndProjectName(t *testing.T) {
 		t.Fatalf("FromEnv returned error: %v", err)
 	}
 
-	if cfg.DriverName != defaultDriverName {
+	if cfg.DriverName != "csi.evs.tcloudpublic.com" {
 		t.Fatalf("unexpected driver name: %q", cfg.DriverName)
 	}
 	if cfg.Backend != defaultBackend {
 		t.Fatalf("unexpected backend: %q", cfg.Backend)
 	}
-	if cfg.Endpoint != defaultEndpoint {
+	if cfg.Endpoint != "unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock" {
 		t.Fatalf("unexpected endpoint: %q", cfg.Endpoint)
 	}
 	if cfg.ProjectName != "demo" {
@@ -76,6 +76,47 @@ func TestFromEnvParsesOverrides(t *testing.T) {
 	if cfg.Timeout != 45*time.Second {
 		t.Fatalf("unexpected timeout: %s", cfg.Timeout)
 	}
+}
+
+func TestFromEnvDerivesDriverNameAndEndpointFromBackend(t *testing.T) {
+	for backend, driverName := range map[string]string{
+		"sfsturbo": "csi.sfsturbo.tcloudpublic.com",
+		"gpsfs":    "csi.gpsfs.tcloudpublic.com",
+	} {
+		t.Run(backend, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("CSI_BACKEND", backend)
+
+			cfg, err := FromEnv()
+			if err != nil {
+				t.Fatalf("FromEnv returned error: %v", err)
+			}
+			if cfg.DriverName != driverName {
+				t.Fatalf("unexpected driver name: %q", cfg.DriverName)
+			}
+			if want := "unix:///var/lib/kubelet/plugins/" + driverName + "/csi.sock"; cfg.Endpoint != want {
+				t.Fatalf("unexpected endpoint: %q", cfg.Endpoint)
+			}
+		})
+	}
+}
+
+func TestFromEnvRejectsUnknownBackend(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("CSI_BACKEND", "obs")
+
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected error for unknown backend")
+	}
+}
+
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OS_REGION", "eu-de")
+	t.Setenv("OS_AUTH_URL", "https://iam.example.com/v3")
+	t.Setenv("OS_USERNAME", "tester")
+	t.Setenv("OS_PASSWORD", "secret")
+	t.Setenv("OS_PROJECT_ID", "project-id")
 }
 
 func TestFromEnvRequiresMandatoryValues(t *testing.T) {

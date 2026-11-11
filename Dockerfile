@@ -33,6 +33,7 @@ RUN apt-get update \
 		ca-certificates \
 		e2fsprogs \
 		mount \
+		nfs-common \
 		util-linux \
 		xfsprogs \
 	&& rm -rf /var/lib/apt/lists/*

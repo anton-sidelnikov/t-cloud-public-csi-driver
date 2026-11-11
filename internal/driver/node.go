@@ -48,19 +48,26 @@ func (s *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolu
 	if err := s.driver.ValidateVolumeCapability(req.GetVolumeCapability()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_capability: %v", err)
 	}
+	if shareDriver, ok := s.driver.(backend.FileShareDriver); ok {
+		return s.stageFileShare(ctx, shareDriver, req)
+	}
 	if req.GetVolumeCapability().GetBlock() != nil {
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
-	devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
-	if devicePath == "" {
-		return nil, status.Error(codes.InvalidArgument, "publish_context.devicePath is required")
+	blockDriver, err := s.blockDriver()
+	if err != nil {
+		return nil, err
 	}
-	devicePath, err := s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
+	devicePath := req.GetPublishContext()[blockDriver.DevicePathKey()]
+	if devicePath == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", blockDriver.DevicePathKey())
+	}
+	devicePath, err = s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "resolve device path: %v", err)
 	}
-	s.loggerOrDefault().Info("resolved staging device path", "volume_id", req.GetVolumeId(), "reported_path", req.GetPublishContext()[s.driver.DevicePathKey()], "resolved_path", devicePath)
+	s.loggerOrDefault().Info("resolved staging device path", "volume_id", req.GetVolumeId(), "reported_path", req.GetPublishContext()[blockDriver.DevicePathKey()], "resolved_path", devicePath)
 
 	stagingPath := req.GetStagingTargetPath()
 	if err := s.mounter.EnsureDir(stagingPath); err != nil {
@@ -123,9 +130,13 @@ func (s *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublish
 	}
 
 	if req.GetVolumeCapability().GetBlock() != nil {
-		devicePath := req.GetPublishContext()[s.driver.DevicePathKey()]
+		blockDriver, err := s.blockDriver()
+		if err != nil {
+			return nil, err
+		}
+		devicePath := req.GetPublishContext()[blockDriver.DevicePathKey()]
 		if devicePath == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", s.driver.DevicePathKey())
+			return nil, status.Errorf(codes.InvalidArgument, "publish_context.%s is required", blockDriver.DevicePathKey())
 		}
 		reportedPath := devicePath
 		devicePath, err = s.deviceResolver.ResolveDevicePath(ctx, req.GetVolumeId(), devicePath)
@@ -176,6 +187,18 @@ func (s *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "resolve node instance id: %v", err)
 	}
+	resp := &csi.NodeGetInfoResponse{NodeId: nodeID}
+	// File shares are not attached to the instance, so the EVS attachment limit does not apply.
+	if _, ok := s.driver.(backend.FileShareDriver); !ok {
+		resp.MaxVolumesPerNode = s.cfg.MaxVolumesPerNode
+	}
+
+	topologyKey := s.driver.TopologyKey()
+	if topologyKey == "" {
+		s.loggerOrDefault().Info("resolved node id", "node_id", nodeID)
+		return resp, nil
+	}
+
 	zone := s.cfg.AvailabilityZone
 	if s.zoneResolver != nil {
 		zone, err = s.zoneResolver.Resolve(ctx)
@@ -183,17 +206,10 @@ func (s *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest)
 			return nil, status.Errorf(codes.Unavailable, "resolve node availability zone: %v", err)
 		}
 	}
-	s.loggerOrDefault().Info("resolved node id", "node_id", nodeID, "topology_key", s.driver.TopologyKey(), "availability_zone", zone)
+	s.loggerOrDefault().Info("resolved node id", "node_id", nodeID, "topology_key", topologyKey, "availability_zone", zone)
+	resp.AccessibleTopology = &csi.Topology{Segments: map[string]string{topologyKey: zone}}
 
-	return &csi.NodeGetInfoResponse{
-		NodeId:            nodeID,
-		MaxVolumesPerNode: s.cfg.MaxVolumesPerNode,
-		AccessibleTopology: &csi.Topology{
-			Segments: map[string]string{
-				s.driver.TopologyKey(): zone,
-			},
-		},
-	}, nil
+	return resp, nil
 }
 
 func (s *nodeServer) loggerOrDefault() *slog.Logger {
@@ -219,6 +235,9 @@ func (s *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVo
 	if err := s.driver.ValidateVolumeCapability(req.GetVolumeCapability()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_capability: %v", err)
 	}
+	if _, ok := s.driver.(backend.FileShareDriver); ok {
+		return nil, status.Error(codes.Unimplemented, "file shares are expanded by the controller only")
+	}
 	if req.GetVolumeCapability().GetBlock() != nil {
 		return &csi.NodeExpandVolumeResponse{CapacityBytes: req.GetCapacityRange().GetRequiredBytes()}, nil
 	}
@@ -237,6 +256,47 @@ func (s *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVo
 	}
 
 	return &csi.NodeExpandVolumeResponse{CapacityBytes: req.GetCapacityRange().GetRequiredBytes()}, nil
+}
+
+// stageFileShare mounts the network share at the staging path. Pods then bind mount
+// the staging path in NodePublishVolume, like filesystem block volumes.
+func (s *nodeServer) stageFileShare(ctx context.Context, shareDriver backend.FileShareDriver, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	if req.GetVolumeCapability().GetBlock() != nil {
+		return nil, status.Error(codes.InvalidArgument, "file shares do not support block access")
+	}
+
+	share, err := shareDriver.ShareMount(req.GetVolumeId(), req.GetVolumeContext())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "file share mount: %v", err)
+	}
+
+	stagingPath := req.GetStagingTargetPath()
+	if err := s.mounter.EnsureDir(stagingPath); err != nil {
+		return nil, status.Errorf(codes.Internal, "ensure staging path: %v", err)
+	}
+	mounted, err := s.mounter.IsMounted(stagingPath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "check staging mount: %v", err)
+	}
+	if mounted {
+		return &csi.NodeStageVolumeResponse{}, nil
+	}
+
+	options := mountOptions(false, req.GetVolumeCapability().GetMount().GetMountFlags(), share.Options...)
+	s.loggerOrDefault().Info("mounting file share", "volume_id", req.GetVolumeId(), "source", share.Source, "fs_type", share.FSType, "staging_path", stagingPath, "options", options)
+	if err := s.mounter.Mount(ctx, share.Source, stagingPath, share.FSType, options); err != nil {
+		return nil, status.Errorf(codes.Internal, "mount file share: %v", err)
+	}
+
+	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+func (s *nodeServer) blockDriver() (backend.BlockDriver, error) {
+	blockDriver, ok := s.driver.(backend.BlockDriver)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "backend %s does not provide block devices", s.driver.Name())
+	}
+	return blockDriver, nil
 }
 
 func (s *nodeServer) unpublishPath(ctx context.Context, targetPath string) error {
@@ -265,8 +325,8 @@ func nodeCapability(cap csi.NodeServiceCapability_RPC_Type) *csi.NodeServiceCapa
 
 func nodeCapabilities(caps []csi.NodeServiceCapability_RPC_Type) []*csi.NodeServiceCapability {
 	result := make([]*csi.NodeServiceCapability, 0, len(caps))
-	for _, cap := range caps {
-		result = append(result, nodeCapability(cap))
+	for _, c := range caps {
+		result = append(result, nodeCapability(c))
 	}
 	return result
 }

@@ -41,6 +41,9 @@ func New(cfg config.Config) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := backendapi.Validate(driver, service); err != nil {
+		return nil, err
+	}
 
 	return &Driver{
 		cfg:     cfg,
@@ -67,7 +70,7 @@ func (d *Driver) Run(ctx context.Context) error {
 	server := grpc.NewServer()
 	d.grpcServer = server
 
-	csi.RegisterIdentityServer(server, newIdentityServer(d.cfg))
+	csi.RegisterIdentityServer(server, newIdentityServer(d.cfg, d.driver))
 	csi.RegisterControllerServer(server, newControllerServer(d.cfg, d.driver, d.service))
 	csi.RegisterNodeServer(server, newNodeServer(d.cfg, d.driver))
 
@@ -89,7 +92,7 @@ func (d *Driver) Run(ctx context.Context) error {
 
 func loadBackend(cfg config.Config, authOpts golangsdk.AuthOptions) (backendapi.Driver, backendapi.Service, error) {
 	switch cfg.Backend {
-	case "evs":
+	case config.BackendEVS:
 		driver := backendevs.New()
 		service, err := evs.NewService(cfg, authOpts)
 		if err != nil {

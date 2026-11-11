@@ -9,15 +9,25 @@ import (
 )
 
 const (
-	defaultDriverName = "csi.evs.tcloudpublic.com"
-	defaultEndpoint   = "unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock"
-	defaultBackend    = "evs"
+	BackendEVS      = "evs"
+	BackendSFSTurbo = "sfsturbo"
+	BackendGPSFS    = "gpsfs"
+
+	defaultBackend = BackendEVS
 )
+
+// backendDriverNames maps each CSI_BACKEND to its default CSI driver name. Each backend
+// runs as a separate CSI driver so that EVS and SFS can be deployed side by side.
+var backendDriverNames = map[string]string{
+	BackendEVS:      "csi.evs.tcloudpublic.com",
+	BackendSFSTurbo: "csi.sfsturbo.tcloudpublic.com",
+	BackendGPSFS:    "csi.gpsfs.tcloudpublic.com",
+}
 
 type Config struct {
 	Backend          string `env:"CSI_BACKEND" envDefault:"evs"`
-	DriverName       string `env:"CSI_DRIVER_NAME" envDefault:"csi.evs.tcloudpublic.com"`
-	Endpoint         string `env:"CSI_ENDPOINT" envDefault:"unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock"`
+	DriverName       string `env:"CSI_DRIVER_NAME"`
+	Endpoint         string `env:"CSI_ENDPOINT"`
 	NodeID           string `env:"CSI_NODE_ID"`
 	Region           string `env:"OS_REGION,required,notEmpty"`
 	AvailabilityZone string `env:"OS_AVAILABILITY_ZONE"`
@@ -40,6 +50,16 @@ func FromEnv() (Config, error) {
 	}
 
 	cfg.normalize()
+	defaultDriverName, ok := backendDriverNames[cfg.Backend]
+	if !ok {
+		return Config{}, fmt.Errorf("unsupported CSI_BACKEND %q", cfg.Backend)
+	}
+	if cfg.DriverName == "" {
+		cfg.DriverName = defaultDriverName
+	}
+	if cfg.Endpoint == "" {
+		cfg.Endpoint = defaultEndpoint(cfg.DriverName)
+	}
 	if cfg.Region == "" {
 		return Config{}, fmt.Errorf("OS_REGION is required")
 	}
@@ -57,6 +77,10 @@ func FromEnv() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultEndpoint(driverName string) string {
+	return "unix:///var/lib/kubelet/plugins/" + driverName + "/csi.sock"
 }
 
 func (c *Config) normalize() {

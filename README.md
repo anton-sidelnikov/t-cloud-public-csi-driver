@@ -184,7 +184,14 @@ CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true make test-functional
 
 ## Kubernetes Manifests
 
-Baseline manifests live in [deploy/kubernetes](deploy/kubernetes).
+Baseline manifests live in [deploy/kubernetes](deploy/kubernetes) and are organized as Kustomize components:
+
+- `namespace/`: the shared `tcloud-public-csi-system` namespace
+- `base/`: RBAC, `CSIDriver`, controller `Deployment`, and node `DaemonSet` (EVS values)
+- `snapshot-controller/`: cluster-level `snapshot-controller` and its RBAC
+- `evs/`: EVS overlay that combines the components above with the example `StorageClass` and `VolumeSnapshotClass`
+
+The root `kustomization.yaml` deploys the `evs` overlay. SFS overlays will be added together with their backends.
 
 Included:
 
@@ -209,6 +216,8 @@ Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
 - the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
+- the driver socket is always served at `/csi/csi.sock` inside the pods; only the host plugin directory and the registrar `--kubelet-registration-path` depend on the driver name
+- the image ships the NFS client (`nfs-common`) for file-share backends
 - snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`), but the bundle now includes the `snapshot-controller` deployment itself
 
 ## EVS Operational Assumptions
@@ -258,7 +267,7 @@ Deployment notes:
 
 - the controller manifest includes `csi-snapshotter`
 - the deployment bundle includes a cluster-level `snapshot-controller`
-- [deploy/kubernetes/volumesnapshotclass.yaml](deploy/kubernetes/volumesnapshotclass.yaml) provides a baseline `VolumeSnapshotClass`
+- [deploy/kubernetes/evs/volumesnapshotclass.yaml](deploy/kubernetes/evs/volumesnapshotclass.yaml) provides a baseline `VolumeSnapshotClass`
 - your cluster must already have the Kubernetes snapshot CRDs installed
 
 ## EVS StorageClass Parameters
@@ -313,11 +322,17 @@ Use either `OS_PROJECT_ID` or `OS_PROJECT_NAME`.
 
 `OS_AVAILABILITY_ZONE` is optional. Each node reads its availability zone from the ECS metadata service (`http://169.254.169.254/openstack/latest/meta_data.json`) and reports it as the `topology.evs.tcloudpublic.com/zone` topology. `OS_AVAILABILITY_ZONE` is used only when the metadata service is unreachable, and as the controller default when a request has no topology. Node registration fails if neither source provides a zone. If a node's reported zone changes, remove the stale `topology.evs.tcloudpublic.com/zone` node label before restarting the node plugin, otherwise registration fails with a topology collision.
 
-`CSI_BACKEND` currently supports:
+`CSI_BACKEND` selects the backend. Each backend is a separate CSI driver with its own name, socket, `CSIDriver` object, and controller/node workloads, so several backends can run side by side in one cluster from the same image.
 
-- `evs`
+| `CSI_BACKEND` | Default `CSI_DRIVER_NAME` | Status |
+| --- | --- | --- |
+| `evs` | `csi.evs.tcloudpublic.com` | implemented |
+| `sfsturbo` | `csi.sfsturbo.tcloudpublic.com` | planned |
+| `gpsfs` | `csi.gpsfs.tcloudpublic.com` | planned |
 
-If `CSI_BACKEND` is omitted, the driver defaults to `evs`.
+If `CSI_BACKEND` is omitted, the driver defaults to `evs`. Unknown values fail at startup. If `CSI_DRIVER_NAME` is omitted, it defaults to the backend driver name, and `CSI_ENDPOINT` defaults to `unix:///var/lib/kubelet/plugins/<driver name>/csi.sock`.
+
+`CSI_MAX_VOLUMES_PER_NODE` applies to block backends only. File-share backends report no per-node volume limit and no topology.
 
 ## References
 

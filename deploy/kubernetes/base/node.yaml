@@ -27,14 +27,14 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: tcloud-public-csi-driver
-          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:pr-functional-43015303275-8c150164a763ed539e22e3518c2a05ed71ebfd2a
+          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
           securityContext:
             privileged: true
           env:
             - name: CSI_BACKEND
               value: evs
             - name: CSI_ENDPOINT
-              value: unix:///var/lib/kubelet/plugins/csi.evs.tcloudpublic.com/csi.sock
+              value: unix:///csi/csi.sock
             - name: CSI_NODE_ID
               valueFrom:
                 fieldRef:
@@ -85,7 +85,7 @@ spec:
                   optional: true
           volumeMounts:
             - name: plugin-dir
-              mountPath: /var/lib/kubelet/plugins/csi.evs.tcloudpublic.com
+              mountPath: /csi
             - name: kubelet-dir
               mountPath: /var/lib/kubelet
               mountPropagation: Bidirectional

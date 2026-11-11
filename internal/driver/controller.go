@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -19,23 +20,11 @@ type controllerServer struct {
 	csi.UnimplementedControllerServer
 	cfg     config.Config
 	driver  backend.Driver
-	service controllerService
+	service backend.Service
 	logger  *slog.Logger
 }
 
-type controllerService interface {
-	CreateVolume(context.Context, backend.CreateVolumeRequest) (*backend.Volume, error)
-	DeleteVolume(context.Context, string) error
-	AttachVolume(context.Context, string, string) (*backend.Attachment, error)
-	DetachVolume(context.Context, string, string) error
-	ExpandVolume(context.Context, string, int64) (int64, error)
-	CreateSnapshot(context.Context, string, string) (*backend.Snapshot, error)
-	DeleteSnapshot(context.Context, string) error
-	GetSnapshot(context.Context, string) (*backend.Snapshot, error)
-	ListSnapshots(context.Context, backend.ListSnapshotsRequest) ([]*backend.Snapshot, error)
-}
-
-func newControllerServer(cfg config.Config, driver backend.Driver, service controllerService) *controllerServer {
+func newControllerServer(cfg config.Config, driver backend.Driver, service backend.Service) *controllerServer {
 	return &controllerServer{
 		cfg:     cfg,
 		driver:  driver,
@@ -50,8 +39,12 @@ func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 
 	req = cloneCreateVolumeRequest(req)
 	if source := req.GetVolumeContentSource(); source != nil && source.GetSnapshot() != nil {
+		snapshotter, ok := s.snapshotter()
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "backend does not support creating volumes from snapshots")
+		}
 		snapshotID := source.GetSnapshot().GetSnapshotId()
-		snapshot, err := s.service.GetSnapshot(ctx, snapshotID)
+		snapshot, err := snapshotter.GetSnapshot(ctx, snapshotID)
 		if err != nil {
 			logger.Error("get source snapshot failed", "snapshot_id", snapshotID, "error", err)
 			return nil, status.Errorf(codes.Internal, "get source snapshot: %v", err)
@@ -104,10 +97,14 @@ func (s *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi
 	if req.GetVolumeId() == "" || req.GetNodeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_id and node_id are required")
 	}
+	attacher, blockDriver, ok := s.attacher()
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "backend does not attach volumes to nodes")
+	}
 	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId(), "node_id", req.GetNodeId())
 	logger.Info("controller publish requested")
 
-	attachment, err := s.service.AttachVolume(ctx, req.GetVolumeId(), req.GetNodeId())
+	attachment, err := attacher.AttachVolume(ctx, req.GetVolumeId(), req.GetNodeId())
 	if err != nil {
 		logger.Error("controller publish failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "attach volume: %v", err)
@@ -115,7 +112,7 @@ func (s *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi
 	logger.Info("controller publish completed", "attachment_id", attachment.ID, "device", attachment.Device)
 
 	return &csi.ControllerPublishVolumeResponse{
-		PublishContext: s.driver.PublishContext(attachment),
+		PublishContext: blockDriver.PublishContext(attachment),
 	}, nil
 }
 
@@ -123,10 +120,14 @@ func (s *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *c
 	if req.GetVolumeId() == "" || req.GetNodeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume_id and node_id are required")
 	}
+	attacher, _, ok := s.attacher()
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "backend does not attach volumes to nodes")
+	}
 	logger := s.loggerOrDefault().With("volume_id", req.GetVolumeId(), "node_id", req.GetNodeId())
 	logger.Info("controller unpublish requested")
 
-	if err := s.service.DetachVolume(ctx, req.GetVolumeId(), req.GetNodeId()); err != nil {
+	if err := attacher.DetachVolume(ctx, req.GetVolumeId(), req.GetNodeId()); err != nil {
 		logger.Error("controller unpublish failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "detach volume: %v", err)
 	}
@@ -184,8 +185,22 @@ func (s *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi.
 
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         size,
-		NodeExpansionRequired: true,
+		NodeExpansionRequired: slices.Contains(s.driver.NodeCapabilities(), csi.NodeServiceCapability_RPC_EXPAND_VOLUME),
 	}, nil
+}
+
+func (s *controllerServer) attacher() (backend.Attacher, backend.BlockDriver, bool) {
+	attacher, ok := s.service.(backend.Attacher)
+	if !ok {
+		return nil, nil, false
+	}
+	blockDriver, ok := s.driver.(backend.BlockDriver)
+	return attacher, blockDriver, ok
+}
+
+func (s *controllerServer) snapshotter() (backend.Snapshotter, bool) {
+	snapshotter, ok := s.service.(backend.Snapshotter)
+	return snapshotter, ok
 }
 
 func (s *controllerServer) loggerOrDefault() *slog.Logger {
@@ -204,10 +219,14 @@ func (s *controllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSn
 		return nil, status.Error(codes.InvalidArgument, "source_volume_id and name are required")
 	}
 
+	snapshotter, ok := s.snapshotter()
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "backend does not support snapshots")
+	}
 	logger := s.loggerOrDefault().With("source_volume_id", req.GetSourceVolumeId(), "snapshot_name", req.GetName())
 	logger.Info("create snapshot requested")
 
-	existing, err := s.service.ListSnapshots(ctx, backend.ListSnapshotsRequest{
+	existing, err := snapshotter.ListSnapshots(ctx, backend.ListSnapshotsRequest{
 		Name:           req.GetName(),
 		SourceVolumeID: req.GetSourceVolumeId(),
 	})
@@ -220,7 +239,7 @@ func (s *controllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSn
 		return &csi.CreateSnapshotResponse{Snapshot: toCSISnapshot(existing[0])}, nil
 	}
 
-	snapshot, err := s.service.CreateSnapshot(ctx, req.GetSourceVolumeId(), req.GetName())
+	snapshot, err := snapshotter.CreateSnapshot(ctx, req.GetSourceVolumeId(), req.GetName())
 	if err != nil {
 		logger.Error("create snapshot failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "create snapshot: %v", err)
@@ -235,10 +254,14 @@ func (s *controllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSn
 		return nil, status.Error(codes.InvalidArgument, "snapshot_id is required")
 	}
 
+	snapshotter, ok := s.snapshotter()
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "backend does not support snapshots")
+	}
 	logger := s.loggerOrDefault().With("snapshot_id", req.GetSnapshotId())
 	logger.Info("delete snapshot requested")
 
-	if err := s.service.DeleteSnapshot(ctx, req.GetSnapshotId()); err != nil {
+	if err := snapshotter.DeleteSnapshot(ctx, req.GetSnapshotId()); err != nil {
 		logger.Error("delete snapshot failed", "error", err)
 		return nil, status.Errorf(codes.Internal, "delete snapshot: %v", err)
 	}
@@ -252,10 +275,14 @@ func (s *controllerServer) ListVolumes(context.Context, *csi.ListVolumesRequest)
 }
 
 func (s *controllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
+	snapshotter, ok := s.snapshotter()
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "backend does not support snapshots")
+	}
 	logger := s.loggerOrDefault().With("snapshot_id", req.GetSnapshotId(), "source_volume_id", req.GetSourceVolumeId(), "max_entries", req.GetMaxEntries(), "starting_token", req.GetStartingToken())
 	logger.Info("list snapshots requested")
 
-	items, err := s.service.ListSnapshots(ctx, backend.ListSnapshotsRequest{
+	items, err := snapshotter.ListSnapshots(ctx, backend.ListSnapshotsRequest{
 		ID:             req.GetSnapshotId(),
 		SourceVolumeID: req.GetSourceVolumeId(),
 	})
@@ -290,15 +317,16 @@ func (s *controllerServer) ControllerGetVolume(context.Context, *csi.ControllerG
 }
 
 func toCSIVolume(driver backend.Driver, vol *backend.Volume, source *csi.VolumeContentSource) *csi.Volume {
-	return &csi.Volume{
+	volume := &csi.Volume{
 		CapacityBytes: vol.SizeBytes,
 		VolumeId:      vol.ID,
-		AccessibleTopology: []*csi.Topology{
-			{Segments: map[string]string{driver.TopologyKey(): vol.AvailabilityZone}},
-		},
 		VolumeContext: driver.VolumeContext(vol),
 		ContentSource: source,
 	}
+	if key := driver.TopologyKey(); key != "" && vol.AvailabilityZone != "" {
+		volume.AccessibleTopology = []*csi.Topology{{Segments: map[string]string{key: vol.AvailabilityZone}}}
+	}
+	return volume
 }
 
 func controllerCapability(cap csi.ControllerServiceCapability_RPC_Type) *csi.ControllerServiceCapability {
@@ -313,8 +341,8 @@ func controllerCapability(cap csi.ControllerServiceCapability_RPC_Type) *csi.Con
 
 func controllerCapabilities(caps []csi.ControllerServiceCapability_RPC_Type) []*csi.ControllerServiceCapability {
 	result := make([]*csi.ControllerServiceCapability, 0, len(caps))
-	for _, cap := range caps {
-		result = append(result, controllerCapability(cap))
+	for _, c := range caps {
+		result = append(result, controllerCapability(c))
 	}
 	return result
 }
