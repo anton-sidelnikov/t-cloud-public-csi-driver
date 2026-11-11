@@ -17,6 +17,7 @@ type nodeServer struct {
 	cfg            config.Config
 	driver         backend.Driver
 	nodeIDResolver nodeIDResolver
+	zoneResolver   nodeZoneResolver
 	deviceResolver devicePathResolver
 	logger         *slog.Logger
 	mounter        nodeMounter
@@ -29,6 +30,7 @@ func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 		cfg:            cfg,
 		driver:         driver,
 		nodeIDResolver: newNodeIDResolver(cfg),
+		zoneResolver:   newNodeZoneResolver(cfg),
 		deviceResolver: newDevicePathResolver(cfg),
 		logger:         slog.Default().With("component", "node", "backend", cfg.Backend),
 		mounter:        &osMounter{},
@@ -169,19 +171,26 @@ func (s *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpub
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (s *nodeServer) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (s *nodeServer) NodeGetInfo(ctx context.Context, _ *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	nodeID, err := s.nodeIDResolver.Resolve()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "resolve node instance id: %v", err)
 	}
-	s.loggerOrDefault().Info("resolved node id", "node_id", nodeID, "topology_key", s.driver.TopologyKey(), "availability_zone", s.cfg.AvailabilityZone)
+	zone := s.cfg.AvailabilityZone
+	if s.zoneResolver != nil {
+		zone, err = s.zoneResolver.Resolve(ctx)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "resolve node availability zone: %v", err)
+		}
+	}
+	s.loggerOrDefault().Info("resolved node id", "node_id", nodeID, "topology_key", s.driver.TopologyKey(), "availability_zone", zone)
 
 	return &csi.NodeGetInfoResponse{
 		NodeId:            nodeID,
 		MaxVolumesPerNode: s.cfg.MaxVolumesPerNode,
 		AccessibleTopology: &csi.Topology{
 			Segments: map[string]string{
-				s.driver.TopologyKey(): s.cfg.AvailabilityZone,
+				s.driver.TopologyKey(): zone,
 			},
 		},
 	}, nil

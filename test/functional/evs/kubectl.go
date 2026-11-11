@@ -117,17 +117,25 @@ func (k kubectl) deleteManifest(t *testing.T, manifest string) {
 
 func (k kubectl) createOrUpdateCloudSecret(t *testing.T, cfg testConfig) {
 	t.Helper()
+	k.applyCloudSecret(t, cfg, cfg.zone)
+}
+
+// applyCloudSecret writes the cloud secret; an empty zone omits OS_AVAILABILITY_ZONE.
+func (k kubectl) applyCloudSecret(t *testing.T, cfg testConfig, zone string) {
+	t.Helper()
 
 	args := []string{
 		"-n", systemNamespace,
 		"create", "secret", "generic", cloudSecretName,
 		"--from-literal=OS_AUTH_URL=" + cfg.authURL,
 		"--from-literal=OS_REGION=" + cfg.region,
-		"--from-literal=OS_AVAILABILITY_ZONE=" + cfg.zone,
 		"--from-literal=OS_USERNAME=" + cfg.username,
 		"--from-literal=OS_PASSWORD=" + cfg.password,
 		"--dry-run=client",
 		"-o", "yaml",
+	}
+	if zone != "" {
+		args = append(args, "--from-literal=OS_AVAILABILITY_ZONE="+zone)
 	}
 	if cfg.domainName != "" {
 		args = append(args, "--from-literal=OS_DOMAIN_NAME="+cfg.domainName)
@@ -150,20 +158,28 @@ func (k kubectl) setDriverImage(t *testing.T, image string) {
 	k.run(t, "-n", systemNamespace, "set", "image", "daemonset/tcloud-public-csi-node", "tcloud-public-csi-driver="+image)
 }
 
+func (k kubectl) restartDriver(t *testing.T) {
+	t.Helper()
+
+	k.run(t, "-n", systemNamespace, "rollout", "restart", "deployment/tcloud-public-csi-controller")
+	k.run(t, "-n", systemNamespace, "rollout", "restart", "daemonset/tcloud-public-csi-node")
+	k.waitForDriverReady(t)
+}
+
 func (k kubectl) waitForDriverReady(t *testing.T) {
 	t.Helper()
 
 	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=10m")
 	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-controller", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-node", "--timeout=10m")
+	// rollout status already waits for the new pods to become available. A label-based
+	// "kubectl wait pod" would also select old pods that are still terminating and then
+	// block until the timeout once they are deleted.
 }
 
 func (k kubectl) waitForSnapshotControllerReady(t *testing.T) {
 	t.Helper()
 
 	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-snapshot-controller", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-snapshot-controller", "--timeout=10m")
 }
 
 func (k kubectl) deploymentExists(t *testing.T, namespace, name string) bool {

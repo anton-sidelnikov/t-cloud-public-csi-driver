@@ -27,7 +27,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: tcloud-public-csi-driver
-          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:latest
+          image: ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver:pr-functional-43015303275-8c150164a763ed539e22e3518c2a05ed71ebfd2a
           securityContext:
             privileged: true
           env:
@@ -54,6 +54,7 @@ spec:
                 secretKeyRef:
                   name: tcloud-public-csi-cloud-config
                   key: OS_AVAILABILITY_ZONE
+                  optional: true
             - name: OS_DOMAIN_NAME
               valueFrom:
                 secretKeyRef:
