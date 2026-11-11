@@ -171,15 +171,15 @@ func (k kubectl) waitForDriverReady(t *testing.T) {
 
 	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-csi-controller", "--timeout=10m")
 	k.run(t, "-n", systemNamespace, "rollout", "status", "daemonset/tcloud-public-csi-node", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-controller", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-csi-node", "--timeout=10m")
+	// rollout status already waits for the new pods to become available. A label-based
+	// "kubectl wait pod" would also select old pods that are still terminating and then
+	// block until the timeout once they are deleted.
 }
 
 func (k kubectl) waitForSnapshotControllerReady(t *testing.T) {
 	t.Helper()
 
 	k.run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-snapshot-controller", "--timeout=10m")
-	k.run(t, "-n", systemNamespace, "wait", "--for=condition=Ready", "pod", "-l", "app=tcloud-public-snapshot-controller", "--timeout=10m")
 }
 
 func (k kubectl) deploymentExists(t *testing.T, namespace, name string) bool {
