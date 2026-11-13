@@ -15,11 +15,12 @@ import (
 
 // fakeAPI returns scripted Get results; the last result repeats once the script is exhausted.
 type fakeAPI struct {
-	listed   []shares.Turbo
-	gets     []getResult
-	created  []shares.CreateOpts
-	deleted  []string
-	expanded []int
+	listed    []shares.Turbo
+	createErr error
+	gets      []getResult
+	created   []shares.CreateOpts
+	deleted   []string
+	expanded  []int
 }
 
 type getResult struct {
@@ -29,6 +30,9 @@ type getResult struct {
 
 func (f *fakeAPI) Create(opts shares.CreateOpts) (*shares.TurboResponse, error) {
 	f.created = append(f.created, opts)
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
 	return &shares.TurboResponse{ID: "share-1", Name: opts.Name, Status: statusCreating}, nil
 }
 
@@ -98,6 +102,70 @@ func TestCreateVolumeWaitsForActiveShare(t *testing.T) {
 	if vol.ID != "share-1" || vol.ExportLocation != "192.168.0.90:/" || vol.SizeBytes != 500*gibibyte || vol.VolumeType != "STANDARD" {
 		t.Fatalf("CreateVolume() = %+v", vol)
 	}
+}
+
+func TestCreateVolumeRetriesTransientGetErrors(t *testing.T) {
+	api := &fakeAPI{gets: []getResult{
+		{err: golangsdk.ErrDefault500{}},
+		{err: golangsdk.ErrDefault404{}},
+		share(statusActive, "", "500.00", "192.168.0.90:/"),
+	}}
+
+	vol, err := testService(api).CreateVolume(context.Background(), createRequest())
+	if err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
+	}
+	if vol.ExportLocation != "192.168.0.90:/" {
+		t.Fatalf("CreateVolume() = %+v", vol)
+	}
+}
+
+func TestCreateVolumeHandlesNameConflict(t *testing.T) {
+	listedLate := shares.Turbo{ID: "share-1", Name: "pvc-1234", Status: statusCreating, Size: "500.00"}
+	tests := map[string]struct {
+		lists   [][]shares.Turbo
+		wantErr bool
+	}{
+		"share listed after conflict": {lists: [][]shares.Turbo{nil, {listedLate}}},
+		"share still not listed":      {lists: [][]shares.Turbo{nil, nil}, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			api := &listSequenceAPI{
+				fakeAPI: &fakeAPI{
+					createErr: golangsdk.ErrDefault409{},
+					gets:      []getResult{share(statusActive, "", "500.00", "192.168.0.90:/")},
+				},
+				lists: tt.lists,
+			}
+			svc := newService(config.Config{Timeout: time.Second}, api)
+			svc.pollInterval = time.Millisecond
+
+			vol, err := svc.CreateVolume(context.Background(), createRequest())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("CreateVolume() error = nil, want conflict")
+				}
+				return
+			}
+			if err != nil || vol.ID != "share-1" {
+				t.Fatalf("CreateVolume() = %+v, %v; want reuse of share-1", vol, err)
+			}
+		})
+	}
+}
+
+// listSequenceAPI returns a different List result on each call.
+type listSequenceAPI struct {
+	*fakeAPI
+	lists [][]shares.Turbo
+	calls int
+}
+
+func (f *listSequenceAPI) List() ([]shares.Turbo, error) {
+	i := min(f.calls, len(f.lists)-1)
+	f.calls++
+	return f.lists[i], nil
 }
 
 func TestCreateVolumeReusesShareWithSameName(t *testing.T) {

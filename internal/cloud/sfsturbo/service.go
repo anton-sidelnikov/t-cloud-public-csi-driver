@@ -132,12 +132,24 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 			SecurityGroupID:  req.SecurityGroupID,
 			Metadata:         shares.Metadata{CryptKeyID: req.KMSKeyID},
 		})
-		if err != nil {
+		switch {
+		case isConflict(err):
+			// An earlier request created the share, but the list did not show it yet.
+			ex, findErr := s.findByName(req.Name)
+			if findErr != nil || ex == nil {
+				logger.Warn("SFS Turbo share name already taken but share not listed yet", "error", err)
+				return nil, fmt.Errorf("create SFS Turbo share %s: %w", req.Name, err)
+			}
+			shareID = ex.ID
+			logger = logger.With("share_id", shareID)
+			logger.Info("reusing SFS Turbo share created by an earlier request", "status", ex.Status)
+		case err != nil:
 			logger.Error("create SFS Turbo share request failed", "error", err)
 			return nil, fmt.Errorf("create SFS Turbo share %s: %w", req.Name, err)
+		default:
+			shareID = resp.ID
+			logger = logger.With("share_id", shareID)
 		}
-		shareID = resp.ID
-		logger = logger.With("share_id", shareID)
 	}
 
 	logger.Info("waiting for SFS Turbo share to become active")
@@ -273,9 +285,16 @@ func (s *Service) findByName(name string) (*shares.Turbo, error) {
 
 func (s *Service) waitForActive(ctx context.Context, shareID string) (*shares.Turbo, error) {
 	var share *shares.Turbo
+	var lastErr error
 	err := s.poll(ctx, func() (bool, error) {
 		var err error
 		share, err = s.api.Get(shareID)
+		// Right after creation the API may answer 404 or 5xx until the share is registered.
+		if isTransient(err) {
+			s.logger.Debug("SFS Turbo share not available yet", "share_id", shareID, "error", err)
+			lastErr = err
+			return false, nil
+		}
 		if err != nil {
 			return false, err
 		}
@@ -291,6 +310,9 @@ func (s *Service) waitForActive(ctx context.Context, shareID string) (*shares.Tu
 		}
 	})
 	if err != nil {
+		if lastErr != nil {
+			return nil, fmt.Errorf("wait for SFS Turbo share %s: %w (last error: %v)", shareID, err, lastErr)
+		}
 		return nil, fmt.Errorf("wait for SFS Turbo share %s: %w", shareID, err)
 	}
 	return share, nil
@@ -365,4 +387,15 @@ func parseSizeGiB(size string) (int64, bool) {
 func isNotFound(err error) bool {
 	var notFound golangsdk.ErrDefault404
 	return errors.As(err, &notFound)
+}
+
+func isConflict(err error) bool {
+	var conflict golangsdk.ErrDefault409
+	return errors.As(err, &conflict)
+}
+
+func isTransient(err error) bool {
+	var internal golangsdk.ErrDefault500
+	var unavailable golangsdk.ErrDefault503
+	return isNotFound(err) || errors.As(err, &internal) || errors.As(err, &unavailable)
 }
