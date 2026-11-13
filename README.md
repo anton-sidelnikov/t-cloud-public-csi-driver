@@ -1,6 +1,6 @@
 # T Cloud Public CSI Driver
 
-This repository hosts an EVS-first Container Storage Interface driver for T Cloud Public.
+This repository hosts a Container Storage Interface driver for T Cloud Public block (EVS) and file (SFS Turbo) storage.
 
 The initial slice in this repository focuses on:
 
@@ -15,7 +15,7 @@ The initial slice in this repository focuses on:
 This is an initial scaffold, not a production-ready driver yet.
 
 The repository is now structured as a multi-driver CSI codebase.
-Today only the `evs` backend is implemented, but the common controller/node plumbing no longer assumes EVS must be the only backend forever.
+The `evs` and `sfsturbo` backends are implemented, and the common controller/node plumbing no longer assumes EVS must be the only backend forever.
 
 Implemented:
 
@@ -122,7 +122,7 @@ Security boundary:
 
 ## Functional Tests
 
-Functional EVS tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
+Functional tests are designed to run against an ephemeral T Cloud Public CCE cluster provisioned with Terraform and the OpenTelekomCloud provider.
 
 The infrastructure scaffold lives in [test/functional/terraform](test/functional/terraform). It creates a VPC, subnet, CCE cluster, worker nodes, and a generated kubeconfig output. Authentication is read from the same `OS_*` environment variables used by the CSI driver:
 
@@ -167,12 +167,23 @@ Terraform variables can still be overridden explicitly with `TF_VAR_*` when need
 
 For private registries, the functional test implementation must create an image pull secret before deploying the driver. Public GHCR images do not require that extra setup.
 
-The current Go functional package includes:
+Shared helpers (kubectl wrapper, config, driver install) live in `test/functional/framework`. `make test-functional` runs the packages in `FUNCTIONAL_PACKAGES` (default `./test/functional/evs ./test/functional/sfsturbo`).
 
-- a bootstrap test that installs the CSI manifests into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
+The `evs` package includes:
+
+- a bootstrap test that installs the CSI manifests (`deploy/kubernetes/cce/evs`) into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
 - a filesystem lifecycle test that provisions an EVS-backed PVC, mounts it in a pod, writes and reads test data, and then performs best-effort namespace cleanup
 
-The next functional-test steps are raw block, expansion, and reclaim-policy scenarios.
+- a snapshot test and an availability zone autodetection test
+
+The `sfsturbo` package deploys `deploy/kubernetes/cce/sfsturbo` into its own namespace and includes:
+
+- a bootstrap test that also checks `attachRequired: false`
+- a lifecycle test: a 500 GiB `ReadWriteMany` PVC shared by two pods that read each other's writes, no `VolumeAttachment`, online expansion to 600 GiB visible in the running pod, and deletion of the PV and share after the PVC is deleted
+
+The SFS Turbo tests need `CSI_TEST_VPC_ID`, `CSI_TEST_SUBNET_ID` (subnet network ID), and `CSI_TEST_SECURITY_GROUP_ID`; `make test-functional` reads them from the Terraform outputs `vpc_id`, `network_id`, and `sfs_turbo_security_group_id` (the project `default` security group), and the tests are skipped when they are missing. SFS Turbo is billed and each step takes minutes, so the package adds roughly 20–30 minutes to the run.
+
+The next functional-test steps are raw block, expansion, and reclaim-policy scenarios for EVS.
 
 The Terraform functional scaffold now defaults kubeconfig generation to the direct public CCE endpoint (`external`) instead of `external_otc`, because that behaves more reliably for normal `kubectl` operations from outside the cluster VPC.
 
@@ -186,12 +197,15 @@ CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true make test-functional
 
 Baseline manifests live in [deploy/kubernetes](deploy/kubernetes) and are organized as Kustomize components:
 
-- `namespace/`: the shared `tcloud-public-csi-system` namespace
-- `base/`: RBAC, `CSIDriver`, controller `Deployment`, and node `DaemonSet` (EVS values)
+- `namespace/`: the `tcloud-public-csi-system` namespace used by EVS
+- `base/`: RBAC, controller `Deployment`, and node `DaemonSet` (EVS values)
 - `snapshot-controller/`: cluster-level `snapshot-controller` and its RBAC
-- `evs/`: EVS overlay that combines the components above with the example `StorageClass` and `VolumeSnapshotClass`
+- `evs/`: EVS overlay that combines the components above with the EVS `CSIDriver`, the example `StorageClass`, and `VolumeSnapshotClass`
+- `sfsturbo/`: SFS Turbo overlay, see [SFS Turbo](#sfs-turbo)
+- `components/cce/`: Kustomize component for Huawei/T Cloud CCE clusters, where kubelet runs with `--root-dir=/mnt/paas/kubernetes/kubelet`; it additionally mounts that directory into the node plugin with bidirectional propagation, so staging and target paths exist at the same location inside the container
+- `cce/evs/` and `cce/sfsturbo/`: the `evs` and `sfsturbo` overlays with the `cce` component, used by the functional tests
 
-The root `kustomization.yaml` deploys the `evs` overlay. SFS overlays will be added together with their backends.
+The root `kustomization.yaml` deploys the `evs` overlay.
 
 Included:
 
@@ -215,10 +229,44 @@ Before applying, replace the placeholder image `ghcr.io/example/tcloud-public-cs
 Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
-- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
+- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation; on CCE deploy `deploy/kubernetes/cce/evs` or `deploy/kubernetes/cce/sfsturbo` instead (or add `components/cce` to your own overlay), otherwise mounts made by the node plugin stay inside its container
 - the driver socket is always served at `/csi/csi.sock` inside the pods; only the host plugin directory and the registrar `--kubelet-registration-path` depend on the driver name
-- the image ships the NFS client (`nfs-common`) for file-share backends
+- the image ships the NFS client (`nfs-common`, plus `netbase` for `/etc/protocols`, which `mount.nfs` needs) for file-share backends
 - snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`), but the bundle now includes the `snapshot-controller` deployment itself
+
+## SFS Turbo
+
+The `sfsturbo` backend (`csi.sfsturbo.tcloudpublic.com`) provisions one SFS Turbo file system per volume and mounts it over NFSv3 (`vers=3,timeo=600,noresvport,nolock,tcp`). It runs next to EVS from the same image:
+
+```bash
+kubectl apply -k deploy/kubernetes/sfsturbo
+```
+
+The overlay deploys into its own namespace `tcloud-public-csi-sfsturbo`, so it can be installed and removed independently of EVS. Create the cloud secret `tcloud-public-csi-cloud-config` in that namespace as well (the same keys as for EVS plus the SFS Turbo network defaults below). The overlay reuses `base/` with the `-sfsturbo` name suffix (cluster-scoped RBAC objects must not clash with EVS) and its own `app` labels, removes `csi-attacher` and `csi-snapshotter`, registers `CSIDriver` with `attachRequired: false`, raises the provisioner and resizer `--timeout` to 5m, and adds an example `tcloud-public-sfsturbo` StorageClass.
+
+Behavior and limits:
+
+- Volumes support only filesystem access (`fsType` empty or `nfs`) and all access modes, including `ReadWriteMany`. Raw block, snapshots, and cloning are not supported.
+- Sizes are rounded up to whole GiB. `STANDARD` and `PERFORMANCE` shares accept 500 to 32768 GiB; smaller requests are raised to 500 GiB.
+- Expansion is online. Each expansion adds at least 100 GiB, so a smaller increase is rounded up to current size + 100 GiB.
+- Creation takes several minutes. `CreateVolume` is idempotent by share name, so provisioner retries pick up the share that is still being created. A share that ends in a failed state is deleted.
+- Deletion waits until the share is gone.
+- Volumes have no topology. The share is created in `availabilityZone` and must be reachable from all nodes that mount it.
+
+Network prerequisites: nodes must be in the share VPC. SFS Turbo opens the NFS ports (111, 2049, 2051, 2052, 20048) in the configured security group; keep them open if you manage the group yourself. The IAM user needs SFS Turbo permissions (for example the `SFS Turbo FullAccess` role).
+
+StorageClass parameters (unknown keys are rejected):
+
+- `shareType`: `STANDARD` (default) or `PERFORMANCE`.
+- `availabilityZone`: defaults to `OS_AVAILABILITY_ZONE`.
+- `vpcId`, `subnetId`, `securityGroupId`: default to `OS_VPC_ID`, `OS_SUBNET_ID`, `OS_SECURITY_GROUP_ID`. `subnetId` is the network ID of the VPC subnet.
+- `kmsKeyId`: optional KMS key for encryption.
+- `description`: optional share description.
+- `csi.storage.k8s.io/fstype`: only `nfs`.
+
+The zone, VPC, subnet, and security group are required; `CreateVolume` fails if neither the StorageClass nor the secret provides them.
+
+Manual validation manifests live in [deploy/manual/sfsturbo](deploy/manual/sfsturbo).
 
 ## EVS Operational Assumptions
 
@@ -317,6 +365,7 @@ The binary reads its configuration from environment variables:
 - `OS_PASSWORD`
 - `OS_PROJECT_ID`
 - `OS_PROJECT_NAME`
+- `OS_VPC_ID`, `OS_SUBNET_ID`, `OS_SECURITY_GROUP_ID` (SFS Turbo defaults, optional)
 
 Use either `OS_PROJECT_ID` or `OS_PROJECT_NAME`.
 
@@ -327,7 +376,7 @@ Use either `OS_PROJECT_ID` or `OS_PROJECT_NAME`.
 | `CSI_BACKEND` | Default `CSI_DRIVER_NAME` | Status |
 | --- | --- | --- |
 | `evs` | `csi.evs.tcloudpublic.com` | implemented |
-| `sfsturbo` | `csi.sfsturbo.tcloudpublic.com` | planned |
+| `sfsturbo` | `csi.sfsturbo.tcloudpublic.com` | implemented |
 | `gpsfs` | `csi.gpsfs.tcloudpublic.com` | planned |
 
 If `CSI_BACKEND` is omitted, the driver defaults to `evs`. Unknown values fail at startup. If `CSI_DRIVER_NAME` is omitted, it defaults to the backend driver name, and `CSI_ENDPOINT` defaults to `unix:///var/lib/kubelet/plugins/<driver name>/csi.sock`.

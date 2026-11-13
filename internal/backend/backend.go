@@ -36,6 +36,11 @@ type CreateVolumeRequest struct {
 	Description      string
 	Metadata         map[string]string
 	SnapshotID       string
+	// Network placement and encryption of file shares.
+	VPCID           string
+	SubnetID        string
+	SecurityGroupID string
+	KMSKeyID        string
 }
 
 type Snapshot struct {

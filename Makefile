@@ -14,6 +14,8 @@ KUSTOMIZE_DIR := ./deploy/kubernetes
 FUNCTIONAL_TF_DIR := ./test/functional/terraform
 FUNCTIONAL_CACHE_DIR := $(CURDIR)/.cache/functional
 FUNCTIONAL_KUBECONFIG := $(FUNCTIONAL_CACHE_DIR)/kubeconfig
+FUNCTIONAL_PACKAGES ?= ./test/functional/evs ./test/functional/sfsturbo
+FUNCTIONAL_TF_OUTPUT := terraform -chdir=$(FUNCTIONAL_TF_DIR) output -raw
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -53,6 +55,7 @@ help:
 	@echo "  make functional-infra-up    Provision functional-test infrastructure"
 	@echo "  make functional-kubeconfig  Write functional-test kubeconfig"
 	@echo "  make test-functional        Run functional tests"
+	@echo "  make functional-cleanup-shares  Delete SFS Turbo shares leaked in the functional VPC"
 	@echo "  make functional-infra-down  Destroy functional-test infrastructure"
 	@echo "  make manifests        Print rendered Kubernetes manifests"
 	@echo "  make install          Apply Kubernetes manifests"
@@ -147,7 +150,18 @@ functional-kubeconfig: dirs
 
 .PHONY: test-functional
 test-functional:
-	@KUBECONFIG=$${KUBECONFIG:-$(FUNCTIONAL_KUBECONFIG)} CSI_TEST_IMAGE=$${CSI_TEST_IMAGE:-$(FUNCTIONAL_IMAGE)} go test -tags=functional ./test/functional/evs -v -timeout 90m
+	@KUBECONFIG=$${KUBECONFIG:-$(FUNCTIONAL_KUBECONFIG)} \
+	CSI_TEST_IMAGE=$${CSI_TEST_IMAGE:-$(FUNCTIONAL_IMAGE)} \
+	CSI_TEST_VPC_ID=$${CSI_TEST_VPC_ID:-$$($(FUNCTIONAL_TF_OUTPUT) vpc_id 2>/dev/null)} \
+	CSI_TEST_SUBNET_ID=$${CSI_TEST_SUBNET_ID:-$$($(FUNCTIONAL_TF_OUTPUT) network_id 2>/dev/null)} \
+	CSI_TEST_SECURITY_GROUP_ID=$${CSI_TEST_SECURITY_GROUP_ID:-$$($(FUNCTIONAL_TF_OUTPUT) sfs_turbo_security_group_id 2>/dev/null)} \
+	go test -tags=functional $(FUNCTIONAL_PACKAGES) -v -timeout 120m
+
+.PHONY: functional-cleanup-shares
+functional-cleanup-shares:
+	@vpc_id=$$($(FUNCTIONAL_TF_OUTPUT) vpc_id 2>/dev/null); \
+	if [ -z "$$vpc_id" ]; then echo "no functional VPC, skipping share cleanup"; exit 0; fi; \
+	go run -tags=functional ./test/functional/cleanup/sfsturbo -vpc-id "$$vpc_id"
 
 .PHONY: functional-infra-down
 functional-infra-down:

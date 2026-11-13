@@ -305,6 +305,7 @@ func (s *nodeServer) unpublishPath(ctx context.Context, targetPath string) error
 		return status.Errorf(codes.Internal, "check mount state: %v", err)
 	}
 	if mounted {
+		s.loggerOrDefault().Info("unmounting volume path", "path", targetPath)
 		if err := s.mounter.Unmount(ctx, targetPath); err != nil {
 			return status.Errorf(codes.Internal, "unmount target: %v", err)
 		}

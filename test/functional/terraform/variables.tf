@@ -161,9 +161,15 @@ variable "node_agency_name" {
 }
 
 variable "node_bandwidth_size" {
-  description = "Worker-node EIP bandwidth size in Mbit/s. Set to null to omit."
+  description = "Worker-node EIP bandwidth size in Mbit/s. Each node gets a Terraform-managed EIP; set to null to omit."
   type        = number
   default     = 100
+}
+
+variable "node_eip_type" {
+  description = "Public EIP type for worker nodes."
+  type        = string
+  default     = "5_bgp"
 }
 
 variable "node_root_volume_type" {
