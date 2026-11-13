@@ -1,0 +1,12 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: tcloud-public-sfsturbo
+provisioner: csi.sfsturbo.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  shareType: STANDARD
+  # availabilityZone, vpcId, subnetId and securityGroupId default to
+  # OS_AVAILABILITY_ZONE, OS_VPC_ID, OS_SUBNET_ID and OS_SECURITY_GROUP_ID.

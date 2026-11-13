@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sfsturbo-writer
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          echo "written by $(hostname) at $(date -Iseconds)" > /data/shared.txt
+          df -h /data
+          tail -f /dev/null
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: sfsturbo-pvc

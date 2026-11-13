@@ -40,13 +40,19 @@ resource "opentelekomcloud_vpc_subnet_v1" "e2e" {
   tags = local.common_tags
 }
 
+# SFS Turbo shares created by the functional tests use the project default security group.
+# SFS Turbo opens the NFS ports in it when a share is created.
+data "opentelekomcloud_networking_secgroup_v2" "default" {
+  name = "default"
+}
+
 resource "opentelekomcloud_compute_keypair_v2" "e2e" {
   name = "${var.name_prefix}-keypair"
 }
 
 resource "opentelekomcloud_cce_cluster_v3" "e2e" {
   name                    = local.cluster_name
-  description             = "Ephemeral cluster for T Cloud Public CSI driver EVS functional tests"
+  description             = "Ephemeral cluster for T Cloud Public CSI driver functional tests"
   cluster_type            = "VirtualMachine"
   flavor_id               = var.cluster_flavor_id
   cluster_version         = var.cluster_version != "" ? var.cluster_version : null

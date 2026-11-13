@@ -66,6 +66,8 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          # The wrapper adds extra lines to stdout, which breaks `terraform output -raw` in the Makefile.
+          terraform_wrapper: false
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,6 +112,9 @@ jobs:
           kubectl -n tcloud-public-csi-system get all -o wide > .cache/functional/artifacts/system-resources.txt || true
           kubectl -n tcloud-public-csi-system logs deployment/tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/controller.log || true
           kubectl -n tcloud-public-csi-system logs daemonset/tcloud-public-csi-node -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/node.log || true
+          kubectl -n tcloud-public-csi-sfsturbo get all -o wide > .cache/functional/artifacts/sfsturbo-resources.txt || true
+          kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/sfsturbo-controller.log || true
+          kubectl -n tcloud-public-csi-sfsturbo logs daemonset/tcloud-public-csi-node-sfsturbo -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/sfsturbo-node.log || true
 
       - name: Upload diagnostics
         if: always()

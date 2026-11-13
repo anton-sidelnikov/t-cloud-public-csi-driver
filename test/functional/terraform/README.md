@@ -1,6 +1,6 @@
 # Functional Test Infrastructure
 
-This Terraform module provisions ephemeral T Cloud Public infrastructure for EVS functional tests:
+This Terraform module provisions ephemeral T Cloud Public infrastructure for the functional tests:
 
 - VPC
 - subnet
@@ -9,6 +9,7 @@ This Terraform module provisions ephemeral T Cloud Public infrastructure for EVS
 - CCE cluster
 - CCE worker nodes
 - generated kubeconfig output
+- outputs for the SFS Turbo tests: `vpc_id`, `network_id`, and the ID of the project `default` security group (`sfs_turbo_security_group_id`, looked up, not created)
 
 The kubeconfig output is fetched from the OpenTelekomCloud provider's CCE kubeconfig data source instead of being assembled manually, and then its API server is rewritten to the preferred endpoint selected by `kubeconfig_server`:
 

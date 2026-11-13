@@ -5,48 +5,37 @@ package evsfunctional
 import (
 	"fmt"
 	"testing"
+
+	"t-cloud-public-csi-driver/test/functional/framework"
 )
 
-func installDriver(t *testing.T, cfg testConfig, k kubectl) {
+func installDriver(t *testing.T, cfg framework.Config, k *framework.Kubectl) {
 	t.Helper()
 
-	t.Logf("step: apply CSI manifests from %s", cfg.deployPath)
-	k.applyKustomize(t, cfg.deployPath)
-	t.Logf("step: verify namespace %s exists", systemNamespace)
-	k.ensureNamespaceExists(t)
-	t.Logf("step: create or update cloud secret %s/%s", systemNamespace, cloudSecretName)
-	k.createOrUpdateCloudSecret(t, cfg)
-	t.Logf("step: patch controller and node images to %s", cfg.driverImage)
-	k.setDriverImage(t, cfg.driverImage)
-	t.Log("step: wait for controller and node rollout readiness")
-	k.waitForDriverReady(t)
-	if k.deploymentExists(t, "kube-system", "everest-csi-controller") {
+	evsDriver(t).Install(t, cfg, k)
+	if k.DeploymentExists("kube-system", "everest-csi-controller") {
 		t.Log("step: scale down managed everest-csi-controller to avoid snapshot reconciliation conflicts in the ephemeral test cluster")
-		k.scaleDeployment(t, "kube-system", "everest-csi-controller", 0)
+		k.ScaleDeployment(t, "kube-system", "everest-csi-controller", 0)
 		t.Log("step: wait for everest-csi-controller to scale down")
-		k.waitForDeploymentReplicas(t, "kube-system", "everest-csi-controller", 0)
+		k.WaitForDeploymentReplicas(t, "kube-system", "everest-csi-controller", 0)
 	}
-	if k.hasVolumeSnapshotCRDs(t) {
+	if k.HasVolumeSnapshotCRDs() {
 		t.Log("step: ensure snapshot-controller deployment is present for VolumeSnapshot reconciliation")
 		ensureSnapshotControllerInstalled(t, k)
 	}
-	t.Log("step: verify CSIDriver registration")
-	k.assertCSIDriverRegistered(t)
 }
 
-func ensureSnapshotControllerInstalled(t *testing.T, k kubectl) {
+func ensureSnapshotControllerInstalled(t *testing.T, k *framework.Kubectl) {
 	t.Helper()
 
-	if k.snapshotControllerExists(t) {
+	if !k.DeploymentExists(systemNamespace, "tcloud-public-snapshot-controller") {
+		t.Log("step: snapshot-controller deployment was not created by the manifest bundle, applying fallback functional manifest")
+		k.ApplyManifest(t, snapshotControllerManifest())
+	} else {
 		t.Log("step: reuse existing deployed snapshot-controller")
-		k.waitForSnapshotControllerReady(t)
-		return
 	}
-
-	t.Log("step: snapshot-controller deployment was not created by the manifest bundle, applying fallback functional manifest")
-	k.applyManifest(t, snapshotControllerManifest())
 	t.Log("step: wait for snapshot-controller rollout readiness")
-	k.waitForSnapshotControllerReady(t)
+	k.Run(t, "-n", systemNamespace, "rollout", "status", "deployment/tcloud-public-snapshot-controller", "--timeout=10m")
 }
 
 func snapshotControllerManifest() string {
