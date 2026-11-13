@@ -229,7 +229,7 @@ Current manifest assumptions:
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
 - the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
 - the driver socket is always served at `/csi/csi.sock` inside the pods; only the host plugin directory and the registrar `--kubelet-registration-path` depend on the driver name
-- the image ships the NFS client (`nfs-common`) for file-share backends
+- the image ships the NFS client (`nfs-common`, plus `netbase` for `/etc/protocols`, which `mount.nfs` needs) for file-share backends
 - snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`), but the bundle now includes the `snapshot-controller` deployment itself
 
 ## SFS Turbo
