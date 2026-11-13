@@ -109,6 +109,7 @@ jobs:
           mkdir -p .cache/functional/artifacts
           kubectl get pods -A -o wide > .cache/functional/artifacts/pods.txt || true
           kubectl get events -A --sort-by=.metadata.creationTimestamp > .cache/functional/artifacts/events.txt || true
+          kubectl get pods -A -o yaml > .cache/functional/artifacts/pods.yaml || true
           kubectl -n tcloud-public-csi-system get all -o wide > .cache/functional/artifacts/system-resources.txt || true
           kubectl -n tcloud-public-csi-system logs deployment/tcloud-public-csi-controller -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/controller.log || true
           kubectl -n tcloud-public-csi-system logs daemonset/tcloud-public-csi-node -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/node.log || true
@@ -123,6 +124,11 @@ jobs:
           name: functional-diagnostics-pr-${{ github.run_id }}
           path: .cache/functional/artifacts
           if-no-files-found: ignore
+
+      - name: Delete leaked SFS Turbo shares
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.keep_resources != true)
+        continue-on-error: true
+        run: make functional-cleanup-shares
 
       - name: Destroy functional infrastructure
         if: always() && (github.event_name != 'workflow_dispatch' || inputs.keep_resources != true)

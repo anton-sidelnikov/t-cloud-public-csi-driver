@@ -15,6 +15,11 @@ spec:
           env:
             - name: CSI_BACKEND
               value: sfsturbo
+        # hostNetwork: must not collide with the EVS node probe on :9808.
+        - name: liveness-probe
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=:9809
       volumes:
         - name: plugin-dir
           hostPath:

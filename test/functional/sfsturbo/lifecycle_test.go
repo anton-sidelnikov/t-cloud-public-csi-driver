@@ -83,14 +83,10 @@ func TestSFSTurboSharedVolumeLifecycle(t *testing.T) {
 	t.Log("step: verify both pods see each other's writes")
 	writerValue := "written-by-" + writerPod
 	k.ExecInPod(t, namespace, writerPod, "sh", "-c", "echo "+writerValue+" > /data/from-writer.txt")
-	if got := strings.TrimSpace(k.ExecInPod(t, namespace, readerPod, "cat", "/data/from-writer.txt")); got != writerValue {
-		t.Fatalf("reader got %q, want %q", got, writerValue)
-	}
+	waitForFileContent(t, k, namespace, readerPod, "/data/from-writer.txt", writerValue)
 	readerValue := "written-by-" + readerPod
 	k.ExecInPod(t, namespace, readerPod, "sh", "-c", "echo "+readerValue+" > /data/from-reader.txt")
-	if got := strings.TrimSpace(k.ExecInPod(t, namespace, writerPod, "cat", "/data/from-reader.txt")); got != readerValue {
-		t.Fatalf("writer got %q, want %q", got, readerValue)
-	}
+	waitForFileContent(t, k, namespace, writerPod, "/data/from-reader.txt", readerValue)
 
 	t.Logf("step: verify no VolumeAttachment exists for PV %s", pvName)
 	attachments := strings.TrimSpace(k.Run(t, "get", "volumeattachment", "-o", `jsonpath={range .items[?(@.spec.source.persistentVolumeName=="`+pvName+`")]}{.metadata.name}{"\n"}{end}`))
@@ -127,6 +123,21 @@ func TestSFSTurboSharedVolumeLifecycle(t *testing.T) {
 
 	t.Logf("SFS Turbo lifecycle succeeded with PV %s", pvName)
 	pvName = ""
+}
+
+// waitForFileContent waits until the pod reads want from path. NFS clients on other
+// nodes may cache directory attributes for a short time.
+func waitForFileContent(t *testing.T, k *framework.Kubectl, namespace, pod, path, want string) {
+	t.Helper()
+
+	var got string
+	framework.Eventually(t, time.Minute, 5*time.Second, func() bool {
+		out, err := k.RunCommand("-n", namespace, "exec", pod, "--", "cat", path)
+		got = strings.TrimSpace(out)
+		return err == nil && got == want
+	}, func() string {
+		return fmt.Sprintf("pod %s/%s reads %q from %s, want %q", namespace, pod, got, path, want)
+	})
 }
 
 // mountSizeKiB returns the size of /data in KiB as reported by df inside the pod.
