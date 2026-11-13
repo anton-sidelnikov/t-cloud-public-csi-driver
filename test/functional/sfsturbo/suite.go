@@ -26,7 +26,7 @@ func sfsTurboDriver(t *testing.T) framework.Driver {
 
 	return framework.Driver{
 		Name:       "csi.sfsturbo.tcloudpublic.com",
-		DeployPath: framework.RepoPath(t, "deploy", "kubernetes", "sfsturbo"),
+		DeployPath: framework.RepoPath(t, "deploy", "kubernetes", "cce", "sfsturbo"),
 		Namespace:  driverNamespace,
 		Controller: "tcloud-public-csi-controller-sfsturbo",
 		Node:       "tcloud-public-csi-node-sfsturbo",

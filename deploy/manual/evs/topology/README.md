@@ -4,7 +4,7 @@ This folder validates availability zone autodetection and topology-aware provisi
 
 Prerequisites:
 
-- the CSI controller and node manifests from `deploy/kubernetes` are already running
+- the CSI controller and node manifests from `deploy/kubernetes` (on CCE: `deploy/kubernetes/cce/evs`) are already running
 - the driver image in those manifests contains availability zone autodetection
 - the node plugin can reach the ECS metadata service `http://169.254.169.254` (the DaemonSet uses `hostNetwork: true`)
 - the common manual namespace and storage class exist, or you apply them as part of the steps below

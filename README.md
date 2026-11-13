@@ -171,12 +171,12 @@ Shared helpers (kubectl wrapper, config, driver install) live in `test/functiona
 
 The `evs` package includes:
 
-- a bootstrap test that installs the CSI manifests into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
+- a bootstrap test that installs the CSI manifests (`deploy/kubernetes/cce/evs`) into the generated cluster, creates the cloud secret from `OS_*`, patches the driver image to `CSI_TEST_IMAGE`, and verifies the driver rolls out successfully
 - a filesystem lifecycle test that provisions an EVS-backed PVC, mounts it in a pod, writes and reads test data, and then performs best-effort namespace cleanup
 
 - a snapshot test and an availability zone autodetection test
 
-The `sfsturbo` package deploys `deploy/kubernetes/sfsturbo` into its own namespace and includes:
+The `sfsturbo` package deploys `deploy/kubernetes/cce/sfsturbo` into its own namespace and includes:
 
 - a bootstrap test that also checks `attachRequired: false`
 - a lifecycle test: a 500 GiB `ReadWriteMany` PVC shared by two pods that read each other's writes, no `VolumeAttachment`, online expansion to 600 GiB visible in the running pod, and deletion of the PV and share after the PVC is deleted
@@ -202,6 +202,8 @@ Baseline manifests live in [deploy/kubernetes](deploy/kubernetes) and are organi
 - `snapshot-controller/`: cluster-level `snapshot-controller` and its RBAC
 - `evs/`: EVS overlay that combines the components above with the EVS `CSIDriver`, the example `StorageClass`, and `VolumeSnapshotClass`
 - `sfsturbo/`: SFS Turbo overlay, see [SFS Turbo](#sfs-turbo)
+- `components/cce/`: Kustomize component for Huawei/T Cloud CCE clusters, where kubelet runs with `--root-dir=/mnt/paas/kubernetes/kubelet`; it additionally mounts that directory into the node plugin with bidirectional propagation, so staging and target paths exist at the same location inside the container
+- `cce/evs/` and `cce/sfsturbo/`: the `evs` and `sfsturbo` overlays with the `cce` component, used by the functional tests
 
 The root `kustomization.yaml` deploys the `evs` overlay.
 
@@ -227,7 +229,7 @@ Before applying, replace the placeholder image `ghcr.io/example/tcloud-public-cs
 Current manifest assumptions:
 
 - controller and node components both consume cloud credentials from the same Kubernetes `Secret`
-- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation
+- the node plugin runs privileged and mounts `/dev`, `/sys`, and the full host `/var/lib/kubelet` with bidirectional mount propagation; on CCE deploy `deploy/kubernetes/cce/evs` or `deploy/kubernetes/cce/sfsturbo` instead (or add `components/cce` to your own overlay), otherwise mounts made by the node plugin stay inside its container
 - the driver socket is always served at `/csi/csi.sock` inside the pods; only the host plugin directory and the registrar `--kubelet-registration-path` depend on the driver name
 - the image ships the NFS client (`nfs-common`, plus `netbase` for `/etc/protocols`, which `mount.nfs` needs) for file-share backends
 - snapshot support still depends on the cluster having the upstream snapshot CRDs installed (`VolumeSnapshot`, `VolumeSnapshotContent`, `VolumeSnapshotClass`), but the bundle now includes the `snapshot-controller` deployment itself

@@ -26,7 +26,7 @@ func evsDriver(t *testing.T) framework.Driver {
 
 	return framework.Driver{
 		Name:       "csi.evs.tcloudpublic.com",
-		DeployPath: framework.RepoPath(t, "deploy", "kubernetes"),
+		DeployPath: framework.RepoPath(t, "deploy", "kubernetes", "cce", "evs"),
 		Namespace:  systemNamespace,
 		Controller: "tcloud-public-csi-controller",
 		Node:       "tcloud-public-csi-node",

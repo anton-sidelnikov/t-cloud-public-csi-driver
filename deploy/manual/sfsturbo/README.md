@@ -8,7 +8,7 @@ Validates the `csi.sfsturbo.tcloudpublic.com` driver with one shared
 
 ## Prerequisites
 
-- The SFS Turbo driver is deployed: `kubectl apply -k deploy/kubernetes/sfsturbo`.
+- The SFS Turbo driver is deployed: `kubectl apply -k deploy/kubernetes/sfsturbo` (on CCE: `deploy/kubernetes/cce/sfsturbo`).
   It runs in its own namespace `tcloud-public-csi-sfsturbo`, separate from EVS
   (`tcloud-public-csi-system`); the test workloads use a third namespace,
   `tcloud-public-csi-manual-sfsturbo`.
