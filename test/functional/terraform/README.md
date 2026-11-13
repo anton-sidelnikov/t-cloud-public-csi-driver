@@ -5,6 +5,7 @@ This Terraform module provisions ephemeral T Cloud Public infrastructure for the
 - VPC
 - subnet
 - public EIP for the CCE API endpoint
+- one public EIP per worker node (for image pulls), managed by Terraform via `eip_ids` so `terraform destroy` releases it; set `TF_VAR_node_bandwidth_size=null` to skip
 - ECS key pair
 - CCE cluster
 - CCE worker nodes
@@ -17,7 +18,7 @@ The kubeconfig output is fetched from the OpenTelekomCloud provider's CCE kubeco
 - `external_otc` when requested and available
 - `internal` as fallback
 
-By default the module also allocates and attaches a public EIP to the CCE API endpoint so local or GitHub-hosted runners can reach the cluster. You can disable that with `TF_VAR_cluster_public_access=false` if the tests run from inside the VPC.
+By default the module also allocates and attaches a public EIP to the CCE API endpoint so local or GitHub-hosted runners can reach the cluster. You can disable that with `TF_VAR_cluster_public_access=false` if the tests run from inside the VPC. A run therefore needs `1 + node_count` free EIPs in the project quota; CCE fails node creation with `Insufficient EIP quota` otherwise.
 
 For local `kubectl` and functional-test traffic, the direct public CCE endpoint (`external`) is the default because it behaves like a normal Kubernetes API server. `external_otc` is still available, but it is not the preferred default for bootstrap and schema-discovery-heavy workflows.
 
