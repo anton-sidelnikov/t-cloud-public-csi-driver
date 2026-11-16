@@ -3,6 +3,7 @@
 package sfsturbofunctional
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -65,11 +66,42 @@ func TestSFSTurboSharedVolumeLifecycle(t *testing.T) {
 	t.Logf("step: create RWX PVC %s/%s (%s) and pods %s, %s", namespace, pvcName, initialSize, writerPod, readerPod)
 	k.ApplyManifest(t, lifecycleManifest(namespace, pvcName, writerPod, readerPod))
 
+	t.Log("step: wait for the controller to start creating the share")
+	shareName := "pvc-" + k.GetNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.metadata.uid}")
+	framework.Eventually(t, 5*time.Minute, 5*time.Second, func() bool {
+		logs, err := driver.ControllerLogs(k)
+		return err == nil && hasLogLine(logs, shareName, "creating SFS Turbo share")
+	}, func() string {
+		return "controller did not log the creation of share " + shareName
+	})
+	interrupted := k.GetNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.status.phase}") != "Bound"
+	if interrupted {
+		t.Log("step: kill the controller while the share is being created")
+		driver.KillController(t, k)
+	} else {
+		t.Log("PVC bound before the controller could be interrupted, skipping the retry check")
+	}
+
 	t.Logf("step: wait for PVC %s/%s to bind (SFS Turbo creation takes several minutes)", namespace, pvcName)
-	k.WaitForPVCBound(t, namespace, pvcName, provisionTimeout)
+	var phase string
+	framework.Eventually(t, provisionTimeout, 10*time.Second, func() bool {
+		// Fail fast instead of waiting for the timeout if the retry rejects its own share.
+		if logs, err := driver.ControllerLogs(k); err == nil && hasLogLine(logs, shareName, "does not match the request") {
+			t.Fatalf("controller rejected existing share %s on retry:\n%s", shareName, logs)
+		}
+		phase = k.GetNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.status.phase}")
+		return phase == "Bound"
+	}, func() string {
+		return fmt.Sprintf("PVC %s/%s is %q, want Bound", namespace, pvcName, phase)
+	})
 	pvName = k.GetNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.spec.volumeName}")
 	if pvName == "" {
 		t.Fatal("expected bound PVC to reference a PV")
+	}
+
+	if interrupted {
+		t.Logf("step: verify the restarted controller reused share %s instead of creating another one", shareName)
+		verifyShareReused(t, driver, k, shareName)
 	}
 
 	t.Logf("step: verify PV %s volume attributes", pvName)
@@ -87,6 +119,9 @@ func TestSFSTurboSharedVolumeLifecycle(t *testing.T) {
 	readerValue := "written-by-" + readerPod
 	k.ExecInPod(t, namespace, readerPod, "sh", "-c", "echo "+readerValue+" > /data/from-reader.txt")
 	waitForFileContent(t, k, namespace, writerPod, "/data/from-reader.txt", readerValue)
+
+	t.Logf("step: verify kubelet reports volume stats for PVC %s/%s", namespace, pvcName)
+	waitForVolumeStats(t, k, namespace, readerPod, pvcName)
 
 	t.Logf("step: verify no VolumeAttachment exists for PV %s", pvName)
 	attachments := strings.TrimSpace(k.Run(t, "get", "volumeattachment", "-o", `jsonpath={range .items[?(@.spec.source.persistentVolumeName=="`+pvName+`")]}{.metadata.name}{"\n"}{end}`))
@@ -123,6 +158,87 @@ func TestSFSTurboSharedVolumeLifecycle(t *testing.T) {
 
 	t.Logf("SFS Turbo lifecycle succeeded with PV %s", pvName)
 	pvName = ""
+}
+
+// hasLogLine reports whether one log line mentions both the share and the message.
+func hasLogLine(logs, shareName, message string) bool {
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, shareName) && strings.Contains(line, message) {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyShareReused checks that the retried CreateVolume found the share by name and that the
+// attributes returned by the API matched the request.
+func verifyShareReused(t *testing.T, driver framework.Driver, k *framework.Kubectl, shareName string) {
+	t.Helper()
+
+	logs, err := driver.ControllerLogs(k)
+	if err != nil {
+		t.Fatalf("get controller logs: %v\n%s", err, logs)
+	}
+	// The logs belong to the new pod only, so a create line means a duplicate request.
+	if hasLogLine(logs, shareName, "creating SFS Turbo share") {
+		t.Fatalf("restarted controller sent a second create request for share %s", shareName)
+	}
+	if !hasLogLine(logs, shareName, "reusing") {
+		t.Fatalf("restarted controller did not log reuse of share %s:\n%s", shareName, logs)
+	}
+}
+
+// waitForVolumeStats waits until the kubelet summary of the pod's node reports capacity,
+// usage, and inodes for the claim, which come from NodeGetVolumeStats.
+func waitForVolumeStats(t *testing.T, k *framework.Kubectl, namespace, pod, pvcName string) {
+	t.Helper()
+
+	node := k.GetNamespacedJSONPath(t, namespace, "pod/"+pod, "{.spec.nodeName}")
+	var got string
+	// Kubelet refreshes volume stats about once a minute.
+	framework.Eventually(t, 3*time.Minute, 10*time.Second, func() bool {
+		out, err := k.RunCommand("get", "--raw", "/api/v1/nodes/"+node+"/proxy/stats/summary")
+		if err != nil {
+			got = err.Error()
+			return false
+		}
+		var summary struct {
+			Pods []struct {
+				PodRef struct{ Name, Namespace string } `json:"podRef"`
+				Volume []struct {
+					CapacityBytes *int64                            `json:"capacityBytes"`
+					UsedBytes     *int64                            `json:"usedBytes"`
+					Inodes        *int64                            `json:"inodes"`
+					PVCRef        *struct{ Name, Namespace string } `json:"pvcRef"`
+				} `json:"volume"`
+			} `json:"pods"`
+		}
+		if err := json.Unmarshal([]byte(out), &summary); err != nil {
+			got = err.Error()
+			return false
+		}
+		for _, p := range summary.Pods {
+			if p.PodRef.Namespace != namespace || p.PodRef.Name != pod {
+				continue
+			}
+			for _, v := range p.Volume {
+				if v.PVCRef == nil || v.PVCRef.Name != pvcName {
+					continue
+				}
+				if v.CapacityBytes == nil || v.UsedBytes == nil || v.Inodes == nil {
+					got = "volume stats without capacity, usage, or inodes"
+					return false
+				}
+				got = fmt.Sprintf("capacity=%d used=%d inodes=%d", *v.CapacityBytes, *v.UsedBytes, *v.Inodes)
+				return *v.CapacityBytes > 0 && *v.Inodes > 0
+			}
+		}
+		got = "no stats for the claim yet"
+		return false
+	}, func() string {
+		return fmt.Sprintf("kubelet on node %s reports no valid stats for PVC %s/%s: %s", node, namespace, pvcName, got)
+	})
+	t.Logf("kubelet volume stats for PVC %s/%s: %s", namespace, pvcName, got)
 }
 
 // waitForFileContent waits until the pod reads want from path. NFS clients on other

@@ -103,6 +103,20 @@ func (d Driver) NodeLogs(k *Kubectl) (string, error) {
 	return k.RunCommand("-n", d.Namespace, "logs", "-l", "app="+d.Node, "-c", driverContainer, "--tail=-1")
 }
 
+// ControllerLogs returns the driver container logs of the controller pod.
+func (d Driver) ControllerLogs(k *Kubectl) (string, error) {
+	return k.RunCommand("-n", d.Namespace, "logs", "deployment/"+d.Controller, "-c", driverContainer, "--tail=-1")
+}
+
+// KillController deletes the controller pods without a graceful rollout, interrupting
+// in-flight requests, and waits for the replacement.
+func (d Driver) KillController(t *testing.T, k *Kubectl) {
+	t.Helper()
+
+	k.Run(t, "-n", d.Namespace, "delete", "pod", "-l", "app="+d.Controller, "--wait=true")
+	k.Run(t, "-n", d.Namespace, "rollout", "status", "deployment/"+d.Controller, "--timeout=10m")
+}
+
 // NodeNames returns the nodes that run a node plugin pod.
 func (d Driver) NodeNames(t *testing.T, k *Kubectl) []string {
 	t.Helper()

@@ -1,0 +1,14 @@
+# Claim for the retained PV; replace PV_NAME, see the README.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-pvc
+  namespace: tcloud-public-csi-manual-sfsturbo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: tcloud-public-sfsturbo-manual
+  volumeName: PV_NAME
+  resources:
+    requests:
+      storage: 500Gi

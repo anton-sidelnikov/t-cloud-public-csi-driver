@@ -12,8 +12,8 @@ spec:
             - --csi-address=$(ADDRESS)
             - --leader-election
             - --leader-election-namespace=$(POD_NAMESPACE)
-            # SFS Turbo creation takes several minutes.
-            - --timeout=5m
+            # SFS Turbo creation takes several minutes; keep in sync with CSI_REQUEST_TIMEOUT.
+            - --timeout=10m
         - name: csi-resizer
           args:
             - --csi-address=$(ADDRESS)
@@ -30,7 +30,7 @@ spec:
             - name: CSI_BACKEND
               value: sfsturbo
             - name: CSI_REQUEST_TIMEOUT
-              value: 5m
+              value: 10m
             - name: OS_VPC_ID
               valueFrom:
                 secretKeyRef:

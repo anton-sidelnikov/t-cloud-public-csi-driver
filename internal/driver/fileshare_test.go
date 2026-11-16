@@ -3,11 +3,14 @@ package driver
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"slices"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 
 	"t-cloud-public-csi-driver/internal/backend"
 	"t-cloud-public-csi-driver/internal/config"
@@ -55,11 +58,12 @@ func (fakeShareDriver) ShareMount(_ string, volumeContext map[string]string) (ba
 // fakeShareService implements only the core backend.Service.
 type fakeShareService struct {
 	createRes *backend.Volume
+	createErr error
 	expandRes int64
 }
 
 func (f *fakeShareService) CreateVolume(context.Context, backend.CreateVolumeRequest) (*backend.Volume, error) {
-	return f.createRes, nil
+	return f.createRes, f.createErr
 }
 
 func (f *fakeShareService) DeleteVolume(context.Context, string) error { return nil }
@@ -272,5 +276,80 @@ func TestIdentityCapabilitiesForFileShareBackend(t *testing.T) {
 	}
 	if !expansion {
 		t.Fatal("expected online volume expansion capability")
+	}
+}
+
+func TestCreateVolumeReportsAlreadyExists(t *testing.T) {
+	server := newControllerServer(config.Config{}, fakeShareDriver{}, &fakeShareService{
+		createErr: fmt.Errorf("share pvc-1: %w: VPC differs", backend.ErrVolumeAlreadyExists),
+	})
+
+	_, err := server.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-1",
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1 << 30},
+		VolumeCapabilities: []*csi.VolumeCapability{multiNodeMountCapability()},
+	})
+	assertCode(t, err, codes.AlreadyExists)
+}
+
+type fakeStatter struct {
+	stats volumeStats
+	err   error
+}
+
+func (f fakeStatter) Stats(string) (volumeStats, error) { return f.stats, f.err }
+
+func TestNodeGetVolumeStats(t *testing.T) {
+	stats := volumeStats{TotalBytes: 500 << 30, AvailableBytes: 400 << 30, UsedBytes: 100 << 30, TotalInodes: 1000, AvailableInodes: 900, UsedInodes: 100}
+	tests := map[string]struct {
+		req     *csi.NodeGetVolumeStatsRequest
+		statter volumeStatter
+		want    codes.Code
+	}{
+		"ok":                  {req: &csi.NodeGetVolumeStatsRequest{VolumeId: "share-1", VolumePath: "/pods/share-1"}, statter: fakeStatter{stats: stats}, want: codes.OK},
+		"missing volume id":   {req: &csi.NodeGetVolumeStatsRequest{VolumePath: "/pods/share-1"}, statter: fakeStatter{stats: stats}, want: codes.InvalidArgument},
+		"missing volume path": {req: &csi.NodeGetVolumeStatsRequest{VolumeId: "share-1"}, statter: fakeStatter{stats: stats}, want: codes.InvalidArgument},
+		"path does not exist": {req: &csi.NodeGetVolumeStatsRequest{VolumeId: "share-1", VolumePath: "/pods/share-1"}, statter: fakeStatter{err: fs.ErrNotExist}, want: codes.NotFound},
+		"statfs fails":        {req: &csi.NodeGetVolumeStatsRequest{VolumeId: "share-1", VolumePath: "/pods/share-1"}, statter: fakeStatter{err: errors.New("stale file handle")}, want: codes.Internal},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := newShareNodeServer(&fakeMounter{}, &fakeDeviceManager{})
+			server.statter = tt.statter
+
+			resp, err := server.NodeGetVolumeStats(context.Background(), tt.req)
+			if tt.want != codes.OK {
+				assertCode(t, err, tt.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("NodeGetVolumeStats: %v", err)
+			}
+			want := []*csi.VolumeUsage{
+				{Unit: csi.VolumeUsage_BYTES, Total: 500 << 30, Available: 400 << 30, Used: 100 << 30},
+				{Unit: csi.VolumeUsage_INODES, Total: 1000, Available: 900, Used: 100},
+			}
+			if len(resp.GetUsage()) != len(want) {
+				t.Fatalf("usage = %v, want %v", resp.GetUsage(), want)
+			}
+			for i := range want {
+				if !proto.Equal(resp.GetUsage()[i], want[i]) {
+					t.Fatalf("usage[%d] = %v, want %v", i, resp.GetUsage()[i], want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestOSVolumeStatter(t *testing.T) {
+	stats, err := osVolumeStatter{}.Stats(t.TempDir())
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.TotalBytes <= 0 || stats.UsedBytes < 0 || stats.AvailableBytes > stats.TotalBytes {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if _, err := (osVolumeStatter{}).Stats(t.TempDir() + "/missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Stats(missing) error = %v, want fs.ErrNotExist", err)
 	}
 }

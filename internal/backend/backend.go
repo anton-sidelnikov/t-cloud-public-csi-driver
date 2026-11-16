@@ -2,12 +2,17 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 
 	"t-cloud-public-csi-driver/internal/config"
 )
+
+// ErrVolumeAlreadyExists is wrapped by Service.CreateVolume when a volume with the requested
+// name exists but does not match the request. The controller reports it as AlreadyExists.
+var ErrVolumeAlreadyExists = errors.New("volume already exists with different parameters")
 
 type Volume struct {
 	ID               string

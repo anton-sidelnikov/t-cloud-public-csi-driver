@@ -22,6 +22,7 @@ type nodeServer struct {
 	logger         *slog.Logger
 	mounter        nodeMounter
 	deviceManager  nodeDeviceManager
+	statter        volumeStatter
 }
 
 func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
@@ -35,6 +36,7 @@ func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
 		logger:         slog.Default().With("component", "node", "backend", cfg.Backend),
 		mounter:        &osMounter{},
 		deviceManager:  newFilesystemManager(runner),
+		statter:        osVolumeStatter{},
 	}
 }
 
