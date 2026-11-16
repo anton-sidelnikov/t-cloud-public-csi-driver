@@ -4,7 +4,7 @@ This folder contains the ordered EVS snapshot validation flow.
 
 Prerequisites:
 
-- the CSI controller and node manifests from `deploy/kubernetes` are already running
+- the CSI controller and node manifests from `deploy/kubernetes` (on CCE: `deploy/kubernetes/cce/evs`) are already running
 - the driver image in those manifests points to a real published image
 - the Kubernetes snapshot CRDs are installed in the cluster
 - the bundled `snapshot-controller` from `deploy/kubernetes` is running

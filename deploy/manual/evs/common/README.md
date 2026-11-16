@@ -10,7 +10,7 @@ kubectl apply -k deploy/manual/evs/common
 
 Prerequisites:
 
-- the CSI controller and node manifests from `deploy/kubernetes` are already running
+- the CSI controller and node manifests from `deploy/kubernetes` (on CCE: `deploy/kubernetes/cce/evs`) are already running
 - the driver image in those manifests points to a real published image
 - cloud credentials are valid and the target project has EVS quota available
 - the node DaemonSet mounts the full host `/var/lib/kubelet` with bidirectional mount propagation

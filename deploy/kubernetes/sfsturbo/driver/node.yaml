@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tcloud-public-csi-node
+  namespace: tcloud-public-csi-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: node-driver-registrar
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.sfsturbo.tcloudpublic.com/csi.sock
+        - name: tcloud-public-csi-driver
+          env:
+            - name: CSI_BACKEND
+              value: sfsturbo
+        # hostNetwork: must not collide with the EVS node probe on :9808.
+        - name: liveness-probe
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=:9809
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.sfsturbo.tcloudpublic.com
+            type: DirectoryOrCreate

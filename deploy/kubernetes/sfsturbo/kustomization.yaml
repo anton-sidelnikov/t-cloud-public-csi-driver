@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tcloud-public-csi-sfsturbo
+resources:
+  - namespace.yaml
+  - driver
+  - csidriver.yaml
+  - storageclass.yaml

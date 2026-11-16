@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcloud-public-csi-controller
+  namespace: tcloud-public-csi-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: csi-provisioner
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            # SFS Turbo creation takes several minutes.
+            - --timeout=5m
+        - name: csi-resizer
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --handle-volume-inuse-error=false
+            - --timeout=5m
+        - name: csi-attacher
+          $patch: delete
+        - name: csi-snapshotter
+          $patch: delete
+        - name: tcloud-public-csi-driver
+          env:
+            - name: CSI_BACKEND
+              value: sfsturbo
+            - name: CSI_REQUEST_TIMEOUT
+              value: 5m
+            - name: OS_VPC_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_VPC_ID
+                  optional: true
+            - name: OS_SUBNET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SUBNET_ID
+                  optional: true
+            - name: OS_SECURITY_GROUP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SECURITY_GROUP_ID
+                  optional: true

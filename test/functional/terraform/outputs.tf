@@ -63,6 +63,11 @@ output "network_id" {
   value       = opentelekomcloud_vpc_subnet_v1.e2e.network_id
 }
 
+output "sfs_turbo_security_group_id" {
+  description = "Default security group used for SFS Turbo shares created by the functional tests."
+  value       = data.opentelekomcloud_networking_secgroup_v2.default.id
+}
+
 output "node_ids" {
   description = "Ephemeral CCE worker node IDs."
   value       = opentelekomcloud_cce_node_v3.e2e[*].id

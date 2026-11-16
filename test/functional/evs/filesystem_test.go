@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"t-cloud-public-csi-driver/test/functional/framework"
 )
 
 func TestEVSFilesystemVolumeLifecycle(t *testing.T) {
 	cfg := loadTestConfig(t)
-	k := newKubectl(cfg)
-	namespace := testNamespace(t)
+	k := framework.NewKubectl(cfg)
+	namespace := framework.TestNamespace(t)
 	pvcName := "evs-fs-pvc"
 	podName := "evs-fs-pod"
 	storageClassName := "tcloud-public-evs"
@@ -21,23 +24,23 @@ func TestEVSFilesystemVolumeLifecycle(t *testing.T) {
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("step: collect debug output from namespace %s", namespace)
-			k.collectNamespaceDebug(t, namespace)
-			k.collectDriverDebug(t)
+			k.CollectNamespaceDebug(t, namespace)
+			collectDriverDebug(t, k)
 		}
-		if !cfg.keepResources {
+		if !cfg.KeepResources {
 			t.Logf("step: delete pvc %s/%s", namespace, pvcName)
-			k.deletePvc(t, namespace, pvcName)
+			k.DeletePVC(t, namespace, pvcName)
 			t.Logf("step: delete pod %s/%s", namespace, podName)
-			k.deletePod(t, namespace, podName)
+			k.DeletePod(t, namespace, podName)
 			t.Logf("step: delete namespace %s", namespace)
-			k.deleteNamespace(t, namespace)
+			k.DeleteNamespace(t, namespace)
 		}
 	})
 
 	ensureDriverInstalled(t, cfg, k)
 
 	t.Logf("step: create namespace %s", namespace)
-	k.createNamespace(t, namespace)
+	k.CreateNamespace(t, namespace)
 
 	manifest := fmt.Sprintf(`apiVersion: v1
 kind: PersistentVolumeClaim
@@ -79,21 +82,21 @@ spec:
 `, pvcName, namespace, storageClassName, podName, namespace, testValue, testFile, pvcName)
 
 	t.Logf("step: create PVC %s/%s and pod %s/%s", namespace, pvcName, namespace, podName)
-	k.applyManifest(t, manifest)
+	k.ApplyManifest(t, manifest)
 
 	t.Logf("step: wait for PVC %s/%s to bind", namespace, pvcName)
-	k.waitForPVCBound(t, namespace, pvcName)
+	k.WaitForPVCBound(t, namespace, pvcName, 5*time.Minute)
 	t.Logf("step: wait for pod %s/%s to become ready", namespace, podName)
-	k.waitForPodReady(t, namespace, podName)
+	k.WaitForPodReady(t, namespace, podName)
 
 	t.Logf("step: verify pod %s/%s can read %s", namespace, podName, testFile)
-	output := strings.TrimSpace(k.execInPod(t, namespace, podName, "cat", testFile))
+	output := strings.TrimSpace(k.ExecInPod(t, namespace, podName, "cat", testFile))
 	if output != testValue {
 		t.Fatalf("unexpected file contents in %s: got %q want %q", testFile, output, testValue)
 	}
 
 	t.Logf("step: verify PVC %s/%s is backed by a PV", namespace, pvcName)
-	pvName := k.getNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.spec.volumeName}")
+	pvName := k.GetNamespacedJSONPath(t, namespace, "pvc/"+pvcName, "{.spec.volumeName}")
 	if pvName == "" {
 		t.Fatal("expected bound PVC to reference a PV")
 	}

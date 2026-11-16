@@ -39,6 +39,11 @@ type Config struct {
 	ProjectID   string `env:"OS_PROJECT_ID"`
 	ProjectName string `env:"OS_PROJECT_NAME"`
 
+	// Default network for SFS file shares; StorageClass parameters take precedence.
+	VPCID           string `env:"OS_VPC_ID"`
+	SubnetID        string `env:"OS_SUBNET_ID"`
+	SecurityGroupID string `env:"OS_SECURITY_GROUP_ID"`
+
 	MaxVolumesPerNode int64         `env:"CSI_MAX_VOLUMES_PER_NODE" envDefault:"32"`
 	Timeout           time.Duration `env:"CSI_REQUEST_TIMEOUT" envDefault:"2m"`
 }
@@ -95,4 +100,7 @@ func (c *Config) normalize() {
 	c.UserName = strings.TrimSpace(c.UserName)
 	c.ProjectID = strings.TrimSpace(c.ProjectID)
 	c.ProjectName = strings.TrimSpace(c.ProjectName)
+	c.VPCID = strings.TrimSpace(c.VPCID)
+	c.SubnetID = strings.TrimSpace(c.SubnetID)
+	c.SecurityGroupID = strings.TrimSpace(c.SecurityGroupID)
 }

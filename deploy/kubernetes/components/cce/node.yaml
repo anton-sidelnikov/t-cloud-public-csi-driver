@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tcloud-public-csi-node
+spec:
+  template:
+    spec:
+      containers:
+        - name: tcloud-public-csi-driver
+          volumeMounts:
+            - name: cce-kubelet-dir
+              mountPath: /mnt/paas/kubernetes/kubelet
+              mountPropagation: Bidirectional
+      volumes:
+        - name: cce-kubelet-dir
+          hostPath:
+            path: /mnt/paas/kubernetes/kubelet
+            type: Directory
