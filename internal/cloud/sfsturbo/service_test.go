@@ -2,6 +2,7 @@ package sfsturbo
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -183,13 +184,60 @@ func TestCreateVolumeReusesShareWithSameName(t *testing.T) {
 	}
 }
 
-func TestCreateVolumeRejectsSmallerExistingShare(t *testing.T) {
-	api := &fakeAPI{listed: []shares.Turbo{{ID: "share-1", Name: "pvc-1234", Status: statusActive, Size: "500.00"}}}
-	req := createRequest()
-	req.SizeBytes = 600 * gibibyte
+func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
+	matching := func() shares.Turbo {
+		return shares.Turbo{
+			ID: "share-1", Name: "pvc-1234", Status: statusActive, Size: "500.00", ShareType: "standard",
+			AvailabilityZone: "eu-de-01", VpcID: "vpc", SubnetID: "subnet", SecurityGroupID: "sg", CryptKeyID: "kms",
+		}
+	}
+	tests := map[string]struct {
+		modify  func(*shares.Turbo)
+		wantErr string
+	}{
+		"all attributes match":     {modify: func(*shares.Turbo) {}},
+		"larger share is reused":   {modify: func(s *shares.Turbo) { s.Size = "600.00" }},
+		"unreported attributes":    {modify: func(s *shares.Turbo) { s.SubnetID, s.CryptKeyID, s.AvailabilityZone = "", "", "" }},
+		"smaller share":            {modify: func(s *shares.Turbo) { s.Size = "400.00" }, wantErr: "size 400 GiB"},
+		"different share type":     {modify: func(s *shares.Turbo) { s.ShareType = "PERFORMANCE" }, wantErr: "share type"},
+		"different zone":           {modify: func(s *shares.Turbo) { s.AvailabilityZone = "eu-de-02" }, wantErr: "availability zone"},
+		"different VPC":            {modify: func(s *shares.Turbo) { s.VpcID = "other" }, wantErr: "VPC"},
+		"different subnet":         {modify: func(s *shares.Turbo) { s.SubnetID = "other" }, wantErr: "subnet"},
+		"different security group": {modify: func(s *shares.Turbo) { s.SecurityGroupID = "other" }, wantErr: "security group"},
+		"different KMS key":        {modify: func(s *shares.Turbo) { s.CryptKeyID = "other" }, wantErr: "KMS key"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			existing := matching()
+			tt.modify(&existing)
+			api := &fakeAPI{listed: []shares.Turbo{existing}, gets: []getResult{share(statusActive, "", "500.00", "192.168.0.90:/")}}
 
-	if _, err := testService(api).CreateVolume(context.Background(), req); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("CreateVolume() error = %v, want already exists", err)
+			_, err := testService(api).CreateVolume(context.Background(), createRequest())
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("CreateVolume() error = %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, backend.ErrVolumeAlreadyExists) || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("CreateVolume() error = %v, want ErrVolumeAlreadyExists mentioning %q", err, tt.wantErr)
+			}
+			if len(api.created) != 0 {
+				t.Fatalf("Create calls = %d, want 0", len(api.created))
+			}
+		})
+	}
+}
+
+func TestCreateVolumeChecksShareFoundAfterConflict(t *testing.T) {
+	api := &listSequenceAPI{
+		fakeAPI: &fakeAPI{createErr: golangsdk.ErrDefault409{}},
+		lists:   [][]shares.Turbo{nil, {{ID: "share-1", Name: "pvc-1234", Status: statusCreating, Size: "500.00", VpcID: "other"}}},
+	}
+	svc := newService(config.Config{Timeout: time.Second}, api)
+
+	if _, err := svc.CreateVolume(context.Background(), createRequest()); !errors.Is(err, backend.ErrVolumeAlreadyExists) {
+		t.Fatalf("CreateVolume() error = %v, want ErrVolumeAlreadyExists", err)
 	}
 }
 

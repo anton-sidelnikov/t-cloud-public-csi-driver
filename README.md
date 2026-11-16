@@ -179,7 +179,7 @@ The `evs` package includes:
 The `sfsturbo` package deploys `deploy/kubernetes/cce/sfsturbo` into its own namespace and includes:
 
 - a bootstrap test that also checks `attachRequired: false`
-- a lifecycle test: a 500 GiB `ReadWriteMany` PVC shared by two pods that read each other's writes, no `VolumeAttachment`, online expansion to 600 GiB visible in the running pod, and deletion of the PV and share after the PVC is deleted
+- a lifecycle test: a 500 GiB `ReadWriteMany` PVC whose creation survives a controller restart without a duplicate share, shared by two pods that read each other's writes, kubelet volume stats for the claim, no `VolumeAttachment`, online expansion to 600 GiB visible in the running pod, and deletion of the PV and share after the PVC is deleted
 
 The SFS Turbo tests need `CSI_TEST_VPC_ID`, `CSI_TEST_SUBNET_ID` (subnet network ID), and `CSI_TEST_SECURITY_GROUP_ID`; `make test-functional` reads them from the Terraform outputs `vpc_id`, `network_id`, and `sfs_turbo_security_group_id` (the project `default` security group), and the tests are skipped when they are missing. SFS Turbo is billed and each step takes minutes, so the package adds roughly 20–30 minutes to the run.
 
@@ -242,14 +242,15 @@ The `sfsturbo` backend (`csi.sfsturbo.tcloudpublic.com`) provisions one SFS Turb
 kubectl apply -k deploy/kubernetes/sfsturbo
 ```
 
-The overlay deploys into its own namespace `tcloud-public-csi-sfsturbo`, so it can be installed and removed independently of EVS. Create the cloud secret `tcloud-public-csi-cloud-config` in that namespace as well (the same keys as for EVS plus the SFS Turbo network defaults below). The overlay reuses `base/` with the `-sfsturbo` name suffix (cluster-scoped RBAC objects must not clash with EVS) and its own `app` labels, removes `csi-attacher` and `csi-snapshotter`, registers `CSIDriver` with `attachRequired: false`, raises the provisioner and resizer `--timeout` to 5m, and adds an example `tcloud-public-sfsturbo` StorageClass.
+The overlay deploys into its own namespace `tcloud-public-csi-sfsturbo`, so it can be installed and removed independently of EVS. Create the cloud secret `tcloud-public-csi-cloud-config` in that namespace as well (the same keys as for EVS plus the SFS Turbo network defaults below). The overlay reuses `base/` with the `-sfsturbo` name suffix (cluster-scoped RBAC objects must not clash with EVS) and its own `app` labels, removes `csi-attacher` and `csi-snapshotter`, registers `CSIDriver` with `attachRequired: false`, raises the provisioner `--timeout` and the driver `CSI_REQUEST_TIMEOUT` to 10m (the resizer `--timeout` to 5m), and adds an example `tcloud-public-sfsturbo` StorageClass.
 
 Behavior and limits:
 
 - Volumes support only filesystem access (`fsType` empty or `nfs`) and all access modes, including `ReadWriteMany`. Raw block, snapshots, and cloning are not supported.
 - Sizes are rounded up to whole GiB. `STANDARD` and `PERFORMANCE` shares accept 500 to 32768 GiB; smaller requests are raised to 500 GiB.
 - Expansion is online. Each expansion adds at least 100 GiB, so a smaller increase is rounded up to current size + 100 GiB.
-- Creation takes several minutes. `CreateVolume` is idempotent by share name, so provisioner retries pick up the share that is still being created. A share that ends in a failed state is deleted.
+- Creation takes several minutes. `CreateVolume` is idempotent by share name, so provisioner retries pick up the share that is still being created. If the existing share differs from the request (smaller size, share type, zone, VPC, subnet, security group, or KMS key), `CreateVolume` fails with `AlreadyExists`. A share that ends in a failed state is deleted.
+- The node plugin reports volume usage (`NodeGetVolumeStats`, bytes and inodes), so kubelet exposes `kubelet_volume_stats_*` metrics for SFS Turbo PVCs.
 - Deletion waits until the share is gone.
 - Volumes have no topology. The share is created in `availabilityZone` and must be reachable from all nodes that mount it.
 

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -68,6 +69,9 @@ func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 	vol, err := s.service.CreateVolume(ctx, createReq)
 	if err != nil {
 		logger.Error("create volume failed", "error", err)
+		if errors.Is(err, backend.ErrVolumeAlreadyExists) {
+			return nil, status.Errorf(codes.AlreadyExists, "create volume: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "create volume: %v", err)
 	}
 	logger.Info("create volume completed", "volume_id", vol.ID)

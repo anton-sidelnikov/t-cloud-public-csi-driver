@@ -31,6 +31,25 @@ kubectl -n tcloud-public-csi-manual-sfsturbo logs sfsturbo-reader
 
 The reader log must contain the line written by `sfsturbo-writer`.
 
+## Controller restart during creation
+
+Run this right after `kubectl apply`, while the PVC is still `Pending`. The
+restarted controller must find the share by name and wait for it instead of
+creating a second share or rejecting it with `AlreadyExists`:
+
+```bash
+kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo \
+  -c tcloud-public-csi-driver | grep "creating SFS Turbo share"
+kubectl -n tcloud-public-csi-sfsturbo delete pod -l app=tcloud-public-csi-controller-sfsturbo
+kubectl -n tcloud-public-csi-sfsturbo rollout status deployment/tcloud-public-csi-controller-sfsturbo
+kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -w
+kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo \
+  -c tcloud-public-csi-driver | grep -E "reusing|does not match|creating SFS Turbo share"
+```
+
+The last command must print only a `reusing ... SFS Turbo share` line, and the
+console must show a single share named after the PV.
+
 ## Expansion
 
 SFS Turbo grows in steps of at least 100 GiB. Expansion is online and needs no
@@ -41,6 +60,52 @@ kubectl -n tcloud-public-csi-manual-sfsturbo patch pvc sfsturbo-pvc \
   -p '{"spec":{"resources":{"requests":{"storage":"600Gi"}}}}'
 kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -w
 kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- df -h /data
+```
+
+## Volume stats
+
+The node plugin reports usage through `NodeGetVolumeStats`, so the kubelet
+summary contains capacity and usage of the share:
+
+```bash
+NODE=$(kubectl -n tcloud-public-csi-manual-sfsturbo get pod sfsturbo-reader -o jsonpath='{.spec.nodeName}')
+kubectl get --raw "/api/v1/nodes/${NODE}/proxy/stats/summary" \
+  | grep -A12 '"name": "sfsturbo-pvc"'
+```
+
+`capacityBytes` must match `df -h /data` in the pod, and `usedBytes` and
+`inodesUsed` must be set.
+
+## Retain reclaim policy
+
+This check reuses the share created above, so no second share is billed. Switch the PV to
+`Retain`, delete the claim, and check that the share and its data survive:
+
+```bash
+PV=$(kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -o jsonpath='{.spec.volumeName}')
+kubectl patch pv "$PV" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+kubectl -n tcloud-public-csi-manual-sfsturbo delete pod sfsturbo-writer sfsturbo-reader
+kubectl -n tcloud-public-csi-manual-sfsturbo delete pvc sfsturbo-pvc
+kubectl get pv "$PV"   # STATUS Released
+kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo \
+  -c tcloud-public-csi-driver | grep -c "deleting SFS Turbo share"   # 0
+```
+
+The share must still be `Available` in the console. Bind the retained PV to a
+new claim and read the old data:
+
+```bash
+kubectl patch pv "$PV" --type json -p '[{"op":"remove","path":"/spec/claimRef"}]'
+sed "s/PV_NAME/$PV/" deploy/manual/sfsturbo/retain/pvc.yaml | kubectl apply -f -
+kubectl -n tcloud-public-csi-manual-sfsturbo apply -f deploy/manual/sfsturbo/pod-reader.yaml
+kubectl -n tcloud-public-csi-manual-sfsturbo wait --for=condition=Ready pod/sfsturbo-reader --timeout=5m
+kubectl -n tcloud-public-csi-manual-sfsturbo logs sfsturbo-reader   # the line written before
+```
+
+Restore `Delete` before the cleanup so that the share is removed with the claim:
+
+```bash
+kubectl patch pv "$PV" -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
 ```
 
 ## Cleanup

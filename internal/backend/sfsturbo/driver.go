@@ -170,6 +170,7 @@ func (d *Driver) ControllerCapabilities() []csi.ControllerServiceCapability_RPC_
 func (d *Driver) NodeCapabilities() []csi.NodeServiceCapability_RPC_Type {
 	return []csi.NodeServiceCapability_RPC_Type{
 		csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+		csi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
 	}
 }
 

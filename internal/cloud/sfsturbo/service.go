@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	golangsdk "github.com/opentelekomcloud/gophertelekomcloud"
@@ -114,8 +115,9 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 	if existing != nil {
 		shareID = existing.ID
 		logger = logger.With("share_id", shareID)
-		if existingGiB, ok := parseSizeGiB(existing.Size); ok && existingGiB < sizeGiB {
-			return nil, fmt.Errorf("SFS Turbo share %s already exists with %d GiB, smaller than the requested %d GiB", req.Name, existingGiB, sizeGiB)
+		if err := checkExistingShare(existing, req, sizeGiB); err != nil {
+			logger.Error("existing SFS Turbo share does not match the request", "error", err)
+			return nil, err
 		}
 		logger.Info("reusing existing SFS Turbo share", "status", existing.Status)
 	} else {
@@ -142,6 +144,10 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 			}
 			shareID = ex.ID
 			logger = logger.With("share_id", shareID)
+			if err := checkExistingShare(ex, req, sizeGiB); err != nil {
+				logger.Error("existing SFS Turbo share does not match the request", "error", err)
+				return nil, err
+			}
 			logger.Info("reusing SFS Turbo share created by an earlier request", "status", ex.Status)
 		case err != nil:
 			logger.Error("create SFS Turbo share request failed", "error", err)
@@ -281,6 +287,34 @@ func (s *Service) findByName(name string) (*shares.Turbo, error) {
 		found = &items[i]
 	}
 	return found, nil
+}
+
+// checkExistingShare verifies that a share found by name matches the request, so that
+// a retried CreateVolume does not silently return a share with other parameters.
+// Attributes the API does not report (empty values) are not compared.
+func checkExistingShare(existing *shares.Turbo, req backend.CreateVolumeRequest, sizeGiB int64) error {
+	var mismatches []string
+	if existingGiB, ok := parseSizeGiB(existing.Size); ok && existingGiB < sizeGiB {
+		mismatches = append(mismatches, fmt.Sprintf("size %d GiB is smaller than the requested %d GiB", existingGiB, sizeGiB))
+	}
+	for _, attr := range []struct {
+		name, existing, requested string
+	}{
+		{"share type", existing.ShareType, req.VolumeType},
+		{"availability zone", existing.AvailabilityZone, req.AvailabilityZone},
+		{"VPC", existing.VpcID, req.VPCID},
+		{"subnet", existing.SubnetID, req.SubnetID},
+		{"security group", existing.SecurityGroupID, req.SecurityGroupID},
+		{"KMS key", existing.CryptKeyID, req.KMSKeyID},
+	} {
+		if attr.existing != "" && !strings.EqualFold(attr.existing, attr.requested) {
+			mismatches = append(mismatches, fmt.Sprintf("%s is %q, requested %q", attr.name, attr.existing, attr.requested))
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return fmt.Errorf("SFS Turbo share %s (%s): %w: %s", existing.Name, existing.ID, backend.ErrVolumeAlreadyExists, strings.Join(mismatches, "; "))
 }
 
 func (s *Service) waitForActive(ctx context.Context, shareID string) (*shares.Turbo, error) {
