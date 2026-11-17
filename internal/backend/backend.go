@@ -24,6 +24,9 @@ type Volume struct {
 	Attachments      []Attachment
 	// ExportLocation is the network address of a file share, for example host:/path.
 	ExportLocation string
+	// SFS Turbo file system type, empty for Standard and Performance.
+	ExpandType   string
+	HPCBandwidth string
 }
 
 type Attachment struct {
@@ -46,6 +49,9 @@ type CreateVolumeRequest struct {
 	SubnetID        string
 	SecurityGroupID string
 	KMSKeyID        string
+	// SFS Turbo file system type: expand_type (bandwidth or hpc) and hpc_bw.
+	ExpandType   string
+	HPCBandwidth string
 }
 
 type Snapshot struct {

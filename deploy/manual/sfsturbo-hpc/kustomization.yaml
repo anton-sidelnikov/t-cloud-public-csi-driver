@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../sfsturbo
+patches:
+  - target:
+      kind: StorageClass
+      name: tcloud-public-sfsturbo-manual
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: tcloud-public-sfsturbo-manual-hpc
+      - op: add
+        path: /parameters/hpcBw
+        value: 40M
+  - target:
+      kind: PersistentVolumeClaim
+      name: sfsturbo-pvc
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: tcloud-public-sfsturbo-manual-hpc
+      # Rounded up to 1228 GiB, the smallest 40 MB/s/TiB file system.
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Ti

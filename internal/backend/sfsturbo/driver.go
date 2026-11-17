@@ -15,9 +15,6 @@ const (
 	driverName = "csi.sfsturbo.tcloudpublic.com"
 
 	gibibyte int64 = 1024 * 1024 * 1024
-	// Capacity limits of SFS Turbo Standard and Performance file systems, in GiB.
-	MinSizeGiB int64 = 500
-	MaxSizeGiB int64 = 32768
 
 	ShareTypeStandard    = "STANDARD"
 	ShareTypePerformance = "PERFORMANCE"
@@ -26,9 +23,13 @@ const (
 	contextName             = "name"
 	contextAvailabilityZone = "availabilityZone"
 	contextShareType        = "shareType"
+	contextExpandType       = "expandType"
+	contextHPCBandwidth     = "hpcBw"
 
 	paramAvailabilityZone = "availabilityZone"
 	paramDescription      = "description"
+	paramExpandType       = "expandType"
+	paramHPCBandwidth     = "hpcBw"
 	paramFSType           = "csi.storage.k8s.io/fstype"
 	paramKMSKeyID         = "kmsKeyId"
 	paramSecurityGroupID  = "securityGroupId"
@@ -90,12 +91,15 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 	if req.GetVolumeContentSource() != nil {
 		return backend.CreateVolumeRequest{}, fmt.Errorf("SFS Turbo does not support volume content sources")
 	}
-	sizeBytes, err := shareSizeBytes(req.GetCapacityRange())
+	params, err := validateAndNormalizeParameters(req.GetParameters())
 	if err != nil {
 		return backend.CreateVolumeRequest{}, err
 	}
-
-	params, err := validateAndNormalizeParameters(req.GetParameters())
+	expandType, hpcBandwidth, err := normalizeExpandParams(params[paramExpandType], params[paramHPCBandwidth])
+	if err != nil {
+		return backend.CreateVolumeRequest{}, err
+	}
+	sizeBytes, err := shareSizeBytes(req.GetCapacityRange(), CapacityRulesFor(expandType, hpcBandwidth))
 	if err != nil {
 		return backend.CreateVolumeRequest{}, err
 	}
@@ -119,6 +123,8 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		SubnetID:         firstNonEmpty(params[paramSubnetID], cfg.SubnetID),
 		SecurityGroupID:  firstNonEmpty(params[paramSecurityGroupID], cfg.SecurityGroupID),
 		KMSKeyID:         params[paramKMSKeyID],
+		ExpandType:       expandType,
+		HPCBandwidth:     hpcBandwidth,
 	}
 
 	var missing []string
@@ -140,12 +146,19 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 }
 
 func (d *Driver) VolumeContext(vol *backend.Volume) map[string]string {
-	return map[string]string{
+	volumeContext := map[string]string{
 		ContextExportLocation:   vol.ExportLocation,
 		contextName:             vol.Name,
 		contextAvailabilityZone: vol.AvailabilityZone,
 		contextShareType:        vol.VolumeType,
 	}
+	if vol.ExpandType != "" {
+		volumeContext[contextExpandType] = vol.ExpandType
+	}
+	if vol.HPCBandwidth != "" {
+		volumeContext[contextHPCBandwidth] = vol.HPCBandwidth
+	}
+	return volumeContext
 }
 
 func (d *Driver) ShareMount(volumeID string, volumeContext map[string]string) (backend.ShareMount, error) {
@@ -174,20 +187,20 @@ func (d *Driver) NodeCapabilities() []csi.NodeServiceCapability_RPC_Type {
 	}
 }
 
-// shareSizeBytes rounds the requested capacity up to whole GiB and to the SFS Turbo minimum.
-func shareSizeBytes(capacity *csi.CapacityRange) (int64, error) {
+// shareSizeBytes rounds the requested capacity up to whole GiB and to a valid size of the file system type.
+func shareSizeBytes(capacity *csi.CapacityRange, rules CapacityRules) (int64, error) {
 	required := capacity.GetRequiredBytes()
 	limit := capacity.GetLimitBytes()
 	if required < 0 || limit < 0 {
 		return 0, fmt.Errorf("capacity must not be negative")
 	}
 
-	sizeGiB := max(SizeBytesToGiB(required), MinSizeGiB)
-	if limit > 0 && sizeGiB*gibibyte > limit {
-		return 0, fmt.Errorf("capacity limit %d bytes is below %d GiB (the request rounded up to whole GiB and the SFS Turbo minimum of %d GiB)", limit, sizeGiB, MinSizeGiB)
+	sizeGiB, err := rules.CreateSizeGiB(SizeBytesToGiB(required))
+	if err != nil {
+		return 0, fmt.Errorf("requested capacity: %w", err)
 	}
-	if sizeGiB > MaxSizeGiB {
-		return 0, fmt.Errorf("requested capacity %d GiB exceeds the SFS Turbo maximum of %d GiB", sizeGiB, MaxSizeGiB)
+	if limit > 0 && sizeGiB*gibibyte > limit {
+		return 0, fmt.Errorf("capacity limit %d bytes is below %d GiB (the request rounded up to a valid %s SFS Turbo size)", limit, sizeGiB, rules.kind)
 	}
 	return sizeGiB * gibibyte, nil
 }
@@ -202,8 +215,8 @@ func validateAndNormalizeParameters(params map[string]string) (map[string]string
 	for key, value := range params {
 		value = strings.TrimSpace(value)
 		switch key {
-		case paramAvailabilityZone, paramDescription, paramKMSKeyID, paramSecurityGroupID,
-			paramShareType, paramSubnetID, paramVPCID:
+		case paramAvailabilityZone, paramDescription, paramExpandType, paramHPCBandwidth, paramKMSKeyID,
+			paramSecurityGroupID, paramShareType, paramSubnetID, paramVPCID:
 			normalized[key] = value
 		case paramFSType:
 			if value != "" && value != fsTypeNFS {

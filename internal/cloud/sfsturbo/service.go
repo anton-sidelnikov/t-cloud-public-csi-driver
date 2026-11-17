@@ -32,9 +32,6 @@ const (
 	subStatusExpanding    = "121"
 	subStatusExpandFailed = "321"
 
-	// minExpandStepGiB is the minimum expansion increment of Standard and Performance file systems.
-	minExpandStepGiB int64 = 100
-
 	defaultPollInterval = 5 * time.Second
 )
 
@@ -132,7 +129,11 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 			VpcID:            req.VPCID,
 			SubnetID:         req.SubnetID,
 			SecurityGroupID:  req.SecurityGroupID,
-			Metadata:         shares.Metadata{CryptKeyID: req.KMSKeyID},
+			Metadata: shares.Metadata{
+				CryptKeyID: req.KMSKeyID,
+				ExpandType: req.ExpandType,
+				HpcBW:      req.HPCBandwidth,
+			},
 		})
 		switch {
 		case isConflict(err):
@@ -211,8 +212,8 @@ func (s *Service) DeleteVolume(ctx context.Context, shareID string) error {
 	return nil
 }
 
-// ExpandVolume grows the share to at least the requested size. SFS Turbo requires
-// a minimum increment, so the result may be larger than requested.
+// ExpandVolume grows the share to at least the requested size. SFS Turbo requires a minimum
+// increment (100 GiB, or 1.2 TiB steps for HPC), so the result may be larger than requested.
 func (s *Service) ExpandVolume(ctx context.Context, shareID string, newSizeBytes int64) (int64, error) {
 	requestedGiB := backendsfsturbo.SizeBytesToGiB(newSizeBytes)
 	logger := s.logger.With("share_id", shareID, "requested_gib", requestedGiB)
@@ -230,9 +231,9 @@ func (s *Service) ExpandVolume(ctx context.Context, shareID string, newSizeBytes
 		return currentGiB * gibibyte, nil
 	}
 
-	targetGiB := max(requestedGiB, currentGiB+minExpandStepGiB)
-	if targetGiB > backendsfsturbo.MaxSizeGiB {
-		return 0, fmt.Errorf("SFS Turbo share %s cannot grow to %d GiB, the maximum is %d GiB", shareID, targetGiB, backendsfsturbo.MaxSizeGiB)
+	targetGiB, err := backendsfsturbo.CapacityRulesFor(share.ExpandType, share.HpcBW).ExpandSizeGiB(currentGiB, requestedGiB)
+	if err != nil {
+		return 0, fmt.Errorf("SFS Turbo share %s cannot grow from %d GiB: %w", shareID, currentGiB, err)
 	}
 
 	logger.Info("expanding SFS Turbo share", "current_gib", currentGiB, "target_gib", targetGiB)
@@ -297,16 +298,22 @@ func checkExistingShare(existing *shares.Turbo, req backend.CreateVolumeRequest,
 	if existingGiB, ok := parseSizeGiB(existing.Size); ok && existingGiB < sizeGiB {
 		mismatches = append(mismatches, fmt.Sprintf("size %d GiB is smaller than the requested %d GiB", existingGiB, sizeGiB))
 	}
-	for _, attr := range []struct {
+	attrs := []struct {
 		name, existing, requested string
 	}{
-		{"share type", existing.ShareType, req.VolumeType},
 		{"availability zone", existing.AvailabilityZone, req.AvailabilityZone},
 		{"VPC", existing.VpcID, req.VPCID},
 		{"subnet", existing.SubnetID, req.SubnetID},
 		{"security group", existing.SecurityGroupID, req.SecurityGroupID},
 		{"KMS key", existing.CryptKeyID, req.KMSKeyID},
-	} {
+		{"expand type", existing.ExpandType, req.ExpandType},
+		{"HPC bandwidth", existing.HpcBW, req.HPCBandwidth},
+	}
+	// The API does not verify the share type of HPC file systems.
+	if req.ExpandType != backendsfsturbo.ExpandTypeHPC {
+		attrs = append(attrs, struct{ name, existing, requested string }{"share type", existing.ShareType, req.VolumeType})
+	}
+	for _, attr := range attrs {
 		if attr.existing != "" && !strings.EqualFold(attr.existing, attr.requested) {
 			mismatches = append(mismatches, fmt.Sprintf("%s is %q, requested %q", attr.name, attr.existing, attr.requested))
 		}
@@ -406,6 +413,8 @@ func toVolume(share *shares.Turbo) *backend.Volume {
 		VolumeType:       share.ShareType,
 		SizeBytes:        sizeGiB * gibibyte,
 		ExportLocation:   share.ExportLocation,
+		ExpandType:       share.ExpandType,
+		HPCBandwidth:     share.HpcBW,
 	}
 }
 

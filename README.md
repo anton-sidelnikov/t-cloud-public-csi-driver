@@ -247,9 +247,12 @@ The overlay deploys into its own namespace `tcloud-public-csi-sfsturbo`, so it c
 Behavior and limits:
 
 - Volumes support only filesystem access (`fsType` empty or `nfs`) and all access modes, including `ReadWriteMany`. Raw block, snapshots, and cloning are not supported.
-- Sizes are rounded up to whole GiB. `STANDARD` and `PERFORMANCE` shares accept 500 to 32768 GiB; smaller requests are raised to 500 GiB.
-- Expansion is online. Each expansion adds at least 100 GiB, so a smaller increase is rounded up to current size + 100 GiB.
-- Creation takes several minutes. `CreateVolume` is idempotent by share name, so provisioner retries pick up the share that is still being created. If the existing share differs from the request (smaller size, share type, zone, VPC, subnet, security group, or KMS key), `CreateVolume` fails with `AlreadyExists`. A share that ends in a failed state is deleted.
+- Sizes are rounded up to whole GiB and raised to the minimum of the file system type; requests above the maximum fail with `InvalidArgument`:
+  - `STANDARD`/`PERFORMANCE`: 500 to 32768 GiB.
+  - Enhanced (`expandType: bandwidth`): 10240 to 327680 GiB.
+  - HPC (`hpcBw` set): multiples of 1.2 TiB rounded down to GiB (1228, 2457, 3686, …), up to 1048576 GiB. The size is rounded up to the next multiple; `hpcBw: 20M` starts at 3686 GiB.
+- Expansion is online. `STANDARD`, `PERFORMANCE`, and Enhanced shares grow by at least 100 GiB, so a smaller increase is rounded up to current size + 100 GiB. HPC shares grow to the next 1.2 TiB multiple at or above the request.
+- Creation takes several minutes. `CreateVolume` is idempotent by share name, so provisioner retries pick up the share that is still being created. If the existing share differs from the request (smaller size, share type, expand type, HPC bandwidth, zone, VPC, subnet, security group, or KMS key), `CreateVolume` fails with `AlreadyExists`. A share that ends in a failed state is deleted.
 - The node plugin reports volume usage (`NodeGetVolumeStats`, bytes and inodes), so kubelet exposes `kubelet_volume_stats_*` metrics for SFS Turbo PVCs.
 - Deletion waits until the share is gone.
 - Volumes have no topology. The share is created in `availabilityZone` and must be reachable from all nodes that mount it.
@@ -258,7 +261,9 @@ Network prerequisites: nodes must be in the share VPC. SFS Turbo opens the NFS p
 
 StorageClass parameters (unknown keys are rejected):
 
-- `shareType`: `STANDARD` (default) or `PERFORMANCE`.
+- `shareType`: `STANDARD` (default) or `PERFORMANCE`. For Enhanced shares it selects Standard-Enhanced or Performance-Enhanced; HPC shares ignore it.
+- `expandType`: `bandwidth` (Enhanced) or `hpc`. Optional; `hpcBw` alone implies `hpc`.
+- `hpcBw`: HPC bandwidth per TiB, one of `20M`, `40M`, `125M`, `250M`, `500M`, `1000M`. Required for `hpc` and not allowed with `bandwidth`.
 - `availabilityZone`: defaults to `OS_AVAILABILITY_ZONE`.
 - `vpcId`, `subnetId`, `securityGroupId`: default to `OS_VPC_ID`, `OS_SUBNET_ID`, `OS_SECURITY_GROUP_ID`. `subnetId` is the network ID of the VPC subnet.
 - `kmsKeyId`: optional KMS key for encryption.
