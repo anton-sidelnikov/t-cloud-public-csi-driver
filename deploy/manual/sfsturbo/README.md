@@ -111,8 +111,41 @@ kubectl patch pv "$PV" -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
 ## Cleanup
 
 ```bash
-kubectl delete -k deploy/manual/sfsturbo
+kubectl delete -k deploy/manual/sfsturbo --ignore-not-found
 ```
 
 The StorageClass uses `reclaimPolicy: Delete`, so the share is deleted with the
 PVC. Check the console that no share remains.
+
+## HPC file system
+
+The [sfsturbo-hpc](../sfsturbo-hpc) overlay runs the same claim and pods with a
+`tcloud-public-sfsturbo-manual-hpc` StorageClass (`hpcBw: 40M`) and a 1Ti
+request. HPC shares start at 1.2 TiB and are billed accordingly, so run this
+once and clean up right away. Run it after the cleanup above, because both
+overlays use the same namespace and claim name.
+
+```bash
+kubectl apply -k deploy/manual/sfsturbo-hpc
+kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -w
+kubectl -n tcloud-public-csi-manual-sfsturbo wait --for=condition=Ready pod/sfsturbo-reader --timeout=15m
+kubectl -n tcloud-public-csi-manual-sfsturbo logs sfsturbo-reader
+```
+
+The PVC capacity must be `1228Gi`, the size of the smallest 40M share. In the
+console the share must have type HPC, bandwidth 40 MB/s/TiB, and 1228 GiB.
+
+Expand by 1 GiB; the driver rounds up to the next 1.2 TiB multiple:
+
+```bash
+kubectl -n tcloud-public-csi-manual-sfsturbo patch pvc sfsturbo-pvc \
+  -p '{"spec":{"resources":{"requests":{"storage":"1229Gi"}}}}'
+kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -w   # 2457Gi
+kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- df -h /data
+```
+
+Clean up:
+
+```bash
+kubectl delete -k deploy/manual/sfsturbo-hpc --ignore-not-found
+```

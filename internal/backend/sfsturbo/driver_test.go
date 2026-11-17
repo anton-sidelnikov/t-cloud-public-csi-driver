@@ -122,6 +122,36 @@ func TestBuildCreateVolumeRequestParametersOverrideConfig(t *testing.T) {
 	}
 }
 
+func TestBuildCreateVolumeRequestFileSystemTypes(t *testing.T) {
+	tests := []struct {
+		name             string
+		params           map[string]string
+		requestedGiB     int64
+		wantExpandType   string
+		wantHPCBandwidth string
+		wantGiB          int64
+	}{
+		{name: "hpc bandwidth implies hpc", params: map[string]string{"hpcBw": "40m"}, requestedGiB: 1024, wantExpandType: "hpc", wantHPCBandwidth: "40M", wantGiB: 1228},
+		{name: "explicit hpc", params: map[string]string{"expandType": "HPC", "hpcBw": "20M"}, requestedGiB: 1024, wantExpandType: "hpc", wantHPCBandwidth: "20M", wantGiB: 3686},
+		{name: "enhanced", params: map[string]string{"expandType": "bandwidth"}, requestedGiB: 1024, wantExpandType: "bandwidth", wantGiB: 10240},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := New().BuildCreateVolumeRequest(networkConfig(), &csi.CreateVolumeRequest{
+				Name:          "pvc-1234",
+				CapacityRange: &csi.CapacityRange{RequiredBytes: tt.requestedGiB * gibibyte},
+				Parameters:    tt.params,
+			})
+			if err != nil {
+				t.Fatalf("BuildCreateVolumeRequest() error = %v", err)
+			}
+			if req.ExpandType != tt.wantExpandType || req.HPCBandwidth != tt.wantHPCBandwidth || req.SizeBytes != tt.wantGiB*gibibyte {
+				t.Fatalf("BuildCreateVolumeRequest() = %+v", req)
+			}
+		})
+	}
+}
+
 func TestBuildCreateVolumeRequestErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -163,7 +193,31 @@ func TestBuildCreateVolumeRequestErrors(t *testing.T) {
 			name:    "above maximum size",
 			cfg:     networkConfig(),
 			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", CapacityRange: &csi.CapacityRange{RequiredBytes: (MaxSizeGiB + 1) * gibibyte}},
-			wantErr: "exceeds the SFS Turbo maximum",
+			wantErr: "exceeds the maximum of 32768 GiB",
+		},
+		{
+			name:    "hpc without bandwidth",
+			cfg:     networkConfig(),
+			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"expandType": "hpc"}},
+			wantErr: "hpcBw=\"\" must be one of 20M, 40M, 125M, 250M, 500M, 1000M",
+		},
+		{
+			name:    "unknown hpc bandwidth",
+			cfg:     networkConfig(),
+			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"hpcBw": "100M"}},
+			wantErr: "hpcBw=\"100M\" must be one of",
+		},
+		{
+			name:    "hpc bandwidth with enhanced",
+			cfg:     networkConfig(),
+			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"expandType": "bandwidth", "hpcBw": "40M"}},
+			wantErr: "hpcBw is only valid with expandType=hpc",
+		},
+		{
+			name:    "unknown expand type",
+			cfg:     networkConfig(),
+			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"expandType": "hpc_cache"}},
+			wantErr: "must be bandwidth or hpc",
 		},
 		{
 			name: "snapshot source",

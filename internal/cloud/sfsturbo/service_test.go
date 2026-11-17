@@ -64,6 +64,12 @@ func share(status, subStatus, size, export string) getResult {
 	}}
 }
 
+func hpcShare(size, subStatus string) getResult {
+	result := share(statusActive, subStatus, size, "")
+	result.share.ExpandType, result.share.HpcBW = "hpc", "40M"
+	return result
+}
+
 func notFound() getResult {
 	return getResult{err: golangsdk.ErrDefault404{}}
 }
@@ -184,6 +190,19 @@ func TestCreateVolumeReusesShareWithSameName(t *testing.T) {
 	}
 }
 
+func TestCreateVolumePassesFileSystemTypeMetadata(t *testing.T) {
+	api := &fakeAPI{gets: []getResult{share(statusActive, "", "1228.00", "192.168.0.90:/")}}
+	req := createRequest()
+	req.SizeBytes, req.ExpandType, req.HPCBandwidth = 1228*gibibyte, "hpc", "40M"
+
+	if _, err := testService(api).CreateVolume(context.Background(), req); err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
+	}
+	if md := api.created[0].Metadata; md.ExpandType != "hpc" || md.HpcBW != "40M" || md.CryptKeyID != "kms" || api.created[0].Size != 1228 {
+		t.Fatalf("CreateOpts = %+v", api.created[0])
+	}
+}
+
 func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
 	matching := func() shares.Turbo {
 		return shares.Turbo{
@@ -205,6 +224,8 @@ func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
 		"different subnet":         {modify: func(s *shares.Turbo) { s.SubnetID = "other" }, wantErr: "subnet"},
 		"different security group": {modify: func(s *shares.Turbo) { s.SecurityGroupID = "other" }, wantErr: "security group"},
 		"different KMS key":        {modify: func(s *shares.Turbo) { s.CryptKeyID = "other" }, wantErr: "KMS key"},
+		"different expand type":    {modify: func(s *shares.Turbo) { s.ExpandType = "bandwidth" }, wantErr: "expand type"},
+		"different HPC bandwidth":  {modify: func(s *shares.Turbo) { s.HpcBW = "40M" }, wantErr: "HPC bandwidth"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -226,6 +247,20 @@ func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
 				t.Fatalf("Create calls = %d, want 0", len(api.created))
 			}
 		})
+	}
+}
+
+func TestCreateVolumeIgnoresShareTypeOfHPCShare(t *testing.T) {
+	existing := shares.Turbo{
+		ID: "share-1", Name: "pvc-1234", Status: statusActive, Size: "1228.00", ShareType: "PERFORMANCE",
+		ExpandType: "hpc", HpcBW: "40M",
+	}
+	api := &fakeAPI{listed: []shares.Turbo{existing}, gets: []getResult{share(statusActive, "", "1228.00", "192.168.0.90:/")}}
+	req := createRequest()
+	req.SizeBytes, req.ExpandType, req.HPCBandwidth = 1228*gibibyte, "hpc", "40M"
+
+	if _, err := testService(api).CreateVolume(context.Background(), req); err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
 	}
 }
 
@@ -323,6 +358,13 @@ func TestExpandVolume(t *testing.T) {
 			requestedGiB: 40000,
 			gets:         []getResult{share(statusActive, "", "500.00", "")},
 			wantErr:      "maximum",
+		},
+		{
+			name:         "hpc share grows in 1.2 TiB steps",
+			requestedGiB: 1300,
+			gets:         []getResult{hpcShare("1228.00", ""), hpcShare("1228.00", subStatusExpanding), hpcShare("2457.00", "221")},
+			wantExpand:   []int{2457},
+			wantGiB:      2457,
 		},
 	}
 	for _, tt := range tests {
