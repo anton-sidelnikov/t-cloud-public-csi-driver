@@ -169,8 +169,8 @@ kubectl get pv "$PV" -o jsonpath='{.spec.csi.volumeAttributes.kmsKeyId}'   # the
 In the console the share must be encrypted with the key.
 
 A malformed key ID is rejected before any cloud call, and an unknown key is
-rejected by the API (`SFS.TURBO.0028`). In both cases the claim stays `Pending`
-and no share is created:
+rejected by the API (`SFS.TURBO.0001 crypt key id (...) cannot be used`). In
+both cases the claim stays `Pending` and no share is created:
 
 ```bash
 kubectl delete -k deploy/manual/sfsturbo-kms --ignore-not-found
@@ -178,7 +178,8 @@ kubectl kustomize deploy/manual/sfsturbo-kms | sed "s/KMS_KEY_ID/not-a-key/" | k
 kubectl -n tcloud-public-csi-manual-sfsturbo describe pvc sfsturbo-pvc | grep "must be a KMS key ID"
 kubectl delete -k deploy/manual/sfsturbo-kms --ignore-not-found
 kubectl kustomize deploy/manual/sfsturbo-kms | sed "s/KMS_KEY_ID/00000000-0000-0000-0000-000000000000/" | kubectl apply -f -
-kubectl -n tcloud-public-csi-manual-sfsturbo describe pvc sfsturbo-pvc | grep -i "crypt key"
+kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo \
+  -c tcloud-public-csi-driver | grep "cannot be used"
 ```
 
 Clean up:
