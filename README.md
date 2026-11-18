@@ -266,7 +266,7 @@ StorageClass parameters (unknown keys are rejected):
 - `hpcBw`: HPC bandwidth per TiB, one of `20M`, `40M`, `125M`, `250M`, `500M`, `1000M`. Required for `hpc` and not allowed with `bandwidth`.
 - `availabilityZone`: defaults to `OS_AVAILABILITY_ZONE`.
 - `vpcId`, `subnetId`, `securityGroupId`: default to `OS_VPC_ID`, `OS_SUBNET_ID`, `OS_SECURITY_GROUP_ID`. `subnetId` is the network ID of the VPC subnet.
-- `kmsKeyId`: optional KMS key for encryption.
+- `kmsKeyId`: optional ID (UUID) of a custom KMS key in the same region and project; the share is created encrypted with it. SFS Turbo has no default key and needs no KMS agency, but the IAM user needs KMS Administrator permissions to create encrypted shares. Encryption cannot be changed later. After creation the driver checks the share's `crypt_key_id`; a share that was not encrypted with the requested key is deleted and `CreateVolume` fails. If the key is disabled or deleted, the data becomes inaccessible.
 - `description`: optional share description.
 - `csi.storage.k8s.io/fstype`: only `nfs`.
 

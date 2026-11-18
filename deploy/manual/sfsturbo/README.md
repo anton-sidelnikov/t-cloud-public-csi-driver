@@ -149,3 +149,40 @@ Clean up:
 ```bash
 kubectl delete -k deploy/manual/sfsturbo-hpc --ignore-not-found
 ```
+
+## KMS encryption
+
+The [sfsturbo-kms](../sfsturbo-kms) overlay runs the same claim and pods with a
+`tcloud-public-sfsturbo-manual-kms` StorageClass that sets `kmsKeyId`. Use the ID
+of an enabled custom KMS key in the same region and project (SFS Turbo has no
+default key). Run it after the cleanup of the other overlays.
+
+```bash
+KMS_KEY_ID=<key ID>
+kubectl kustomize deploy/manual/sfsturbo-kms | sed "s/KMS_KEY_ID/${KMS_KEY_ID}/" | kubectl apply -f -
+kubectl -n tcloud-public-csi-manual-sfsturbo wait --for=condition=Ready pod/sfsturbo-reader --timeout=20m
+kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- cat /data/shared.txt
+PV=$(kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -o jsonpath='{.spec.volumeName}')
+kubectl get pv "$PV" -o jsonpath='{.spec.csi.volumeAttributes.kmsKeyId}'   # the key ID
+```
+
+In the console the share must be encrypted with the key.
+
+A malformed key ID is rejected before any cloud call, and an unknown key is
+rejected by the API (`SFS.TURBO.0028`). In both cases the claim stays `Pending`
+and no share is created:
+
+```bash
+kubectl delete -k deploy/manual/sfsturbo-kms --ignore-not-found
+kubectl kustomize deploy/manual/sfsturbo-kms | sed "s/KMS_KEY_ID/not-a-key/" | kubectl apply -f -
+kubectl -n tcloud-public-csi-manual-sfsturbo describe pvc sfsturbo-pvc | grep "must be a KMS key ID"
+kubectl delete -k deploy/manual/sfsturbo-kms --ignore-not-found
+kubectl kustomize deploy/manual/sfsturbo-kms | sed "s/KMS_KEY_ID/00000000-0000-0000-0000-000000000000/" | kubectl apply -f -
+kubectl -n tcloud-public-csi-manual-sfsturbo describe pvc sfsturbo-pvc | grep -i "crypt key"
+```
+
+Clean up:
+
+```bash
+kubectl delete -k deploy/manual/sfsturbo-kms --ignore-not-found
+```
