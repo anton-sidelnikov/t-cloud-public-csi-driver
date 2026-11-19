@@ -165,6 +165,10 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 		logger.Error("SFS Turbo share did not become active", "error", err)
 		return nil, err
 	}
+	if err := s.checkEncryption(share, req.KMSKeyID); err != nil {
+		logger.Error("SFS Turbo share is not encrypted with the requested KMS key", "error", err)
+		return nil, err
+	}
 	logger.Info("SFS Turbo share created", "export_location", share.ExportLocation)
 	return toVolume(share), nil
 }
@@ -359,6 +363,21 @@ func (s *Service) waitForActive(ctx context.Context, shareID string) (*shares.Tu
 	return share, nil
 }
 
+// checkEncryption verifies that an active share uses the requested KMS key. The API reports
+// crypt_key_id only for encrypted shares, so a share without it was created unencrypted.
+// Such a share is deleted, because encryption cannot be enabled later and a retry
+// must not reuse it.
+func (s *Service) checkEncryption(share *shares.Turbo, kmsKeyID string) error {
+	if kmsKeyID == "" || strings.EqualFold(share.CryptKeyID, kmsKeyID) {
+		return nil
+	}
+	s.logger.Warn("deleting SFS Turbo share without the requested encryption", "share_id", share.ID, "crypt_key_id", share.CryptKeyID, "kms_key_id", kmsKeyID)
+	if err := s.api.Delete(share.ID); err != nil && !isNotFound(err) {
+		return fmt.Errorf("SFS Turbo share %s has KMS key %q instead of %q, and deleting it failed: %w", share.ID, share.CryptKeyID, kmsKeyID, err)
+	}
+	return fmt.Errorf("SFS Turbo share %s has KMS key %q instead of %q and was deleted", share.ID, share.CryptKeyID, kmsKeyID)
+}
+
 // cleanupFailedShare deletes a share whose creation failed so that a retry can create it again.
 func (s *Service) cleanupFailedShare(shareID, status string) error {
 	s.logger.Warn("deleting failed SFS Turbo share", "share_id", shareID, "status", status)
@@ -415,6 +434,7 @@ func toVolume(share *shares.Turbo) *backend.Volume {
 		ExportLocation:   share.ExportLocation,
 		ExpandType:       share.ExpandType,
 		HPCBandwidth:     share.HpcBW,
+		KMSKeyID:         share.CryptKeyID,
 	}
 }
 

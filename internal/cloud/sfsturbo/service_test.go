@@ -60,7 +60,7 @@ func (f *fakeAPI) Expand(_ string, newSizeGiB int) error {
 func share(status, subStatus, size, export string) getResult {
 	return getResult{share: &shares.Turbo{
 		ID: "share-1", Name: "pvc-1234", Status: status, SubStatus: subStatus, Size: size,
-		ExportLocation: export, ShareType: "STANDARD", AvailabilityZone: "eu-de-01",
+		ExportLocation: export, ShareType: "STANDARD", AvailabilityZone: "eu-de-01", CryptKeyID: "kms",
 	}}
 }
 
@@ -106,7 +106,7 @@ func TestCreateVolumeWaitsForActiveShare(t *testing.T) {
 		opts.SecurityGroupID != "sg" || opts.Metadata.CryptKeyID != "kms" {
 		t.Fatalf("CreateOpts = %+v", opts)
 	}
-	if vol.ID != "share-1" || vol.ExportLocation != "192.168.0.90:/" || vol.SizeBytes != 500*gibibyte || vol.VolumeType != "STANDARD" {
+	if vol.ID != "share-1" || vol.ExportLocation != "192.168.0.90:/" || vol.SizeBytes != 500*gibibyte || vol.VolumeType != "STANDARD" || vol.KMSKeyID != "kms" {
 		t.Fatalf("CreateVolume() = %+v", vol)
 	}
 }
@@ -383,5 +383,43 @@ func TestExpandVolume(t *testing.T) {
 				t.Fatalf("Expand calls = %v, want %v", api.expanded, tt.wantExpand)
 			}
 		})
+	}
+}
+
+func TestCreateVolumeDeletesShareWithoutRequestedEncryption(t *testing.T) {
+	unencrypted := share(statusActive, "", "500.00", "192.168.0.90:/")
+	unencrypted.share.CryptKeyID = ""
+	otherKey := share(statusActive, "", "500.00", "192.168.0.90:/")
+	otherKey.share.CryptKeyID = "other"
+	tests := map[string]struct {
+		listed []shares.Turbo
+		get    getResult
+	}{
+		"new share not encrypted":    {get: unencrypted},
+		"new share with another key": {get: otherKey},
+		"reused share not encrypted": {listed: []shares.Turbo{{ID: "share-1", Name: "pvc-1234", Status: statusCreating}}, get: unencrypted},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			api := &fakeAPI{listed: tt.listed, gets: []getResult{tt.get}}
+
+			_, err := testService(api).CreateVolume(context.Background(), createRequest())
+			if err == nil || !strings.Contains(err.Error(), "instead of \"kms\" and was deleted") {
+				t.Fatalf("CreateVolume() error = %v, want encryption mismatch", err)
+			}
+			if len(api.deleted) != 1 {
+				t.Fatalf("Delete calls = %d, want 1", len(api.deleted))
+			}
+		})
+	}
+}
+
+func TestCreateVolumeAcceptsEncryptedShareWithoutRequestedKey(t *testing.T) {
+	api := &fakeAPI{gets: []getResult{share(statusActive, "", "500.00", "192.168.0.90:/")}}
+	req := createRequest()
+	req.KMSKeyID = ""
+
+	if _, err := testService(api).CreateVolume(context.Background(), req); err != nil || len(api.deleted) != 0 {
+		t.Fatalf("CreateVolume() error = %v, Delete calls = %d", err, len(api.deleted))
 	}
 }

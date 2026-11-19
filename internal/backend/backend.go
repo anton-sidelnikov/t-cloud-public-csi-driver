@@ -27,6 +27,8 @@ type Volume struct {
 	// SFS Turbo file system type, empty for Standard and Performance.
 	ExpandType   string
 	HPCBandwidth string
+	// KMSKeyID is the encryption key of a file share, empty if it is not encrypted.
+	KMSKeyID string
 }
 
 type Attachment struct {

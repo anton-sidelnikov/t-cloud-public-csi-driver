@@ -25,6 +25,7 @@ const (
 	contextShareType        = "shareType"
 	contextExpandType       = "expandType"
 	contextHPCBandwidth     = "hpcBw"
+	contextKMSKeyID         = "kmsKeyId"
 
 	paramAvailabilityZone = "availabilityZone"
 	paramDescription      = "description"
@@ -45,6 +46,8 @@ var mountOptions = []string{"vers=3", "timeo=600", "noresvport", "nolock", "tcp"
 
 // SFS Turbo names have 4 to 64 characters, start with a letter, and contain letters, digits, hyphens, and underscores.
 var shareNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{3,63}$`)
+
+var kmsKeyIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Driver struct{}
 
@@ -104,6 +107,11 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		return backend.CreateVolumeRequest{}, err
 	}
 
+	kmsKeyID := strings.ToLower(params[paramKMSKeyID])
+	if kmsKeyID != "" && !kmsKeyIDPattern.MatchString(kmsKeyID) {
+		return backend.CreateVolumeRequest{}, fmt.Errorf("StorageClass parameter %s=%q must be a KMS key ID (UUID)", paramKMSKeyID, params[paramKMSKeyID])
+	}
+
 	shareType := strings.ToUpper(params[paramShareType])
 	switch shareType {
 	case "":
@@ -122,7 +130,7 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		VPCID:            firstNonEmpty(params[paramVPCID], cfg.VPCID),
 		SubnetID:         firstNonEmpty(params[paramSubnetID], cfg.SubnetID),
 		SecurityGroupID:  firstNonEmpty(params[paramSecurityGroupID], cfg.SecurityGroupID),
-		KMSKeyID:         params[paramKMSKeyID],
+		KMSKeyID:         kmsKeyID,
 		ExpandType:       expandType,
 		HPCBandwidth:     hpcBandwidth,
 	}
@@ -157,6 +165,9 @@ func (d *Driver) VolumeContext(vol *backend.Volume) map[string]string {
 	}
 	if vol.HPCBandwidth != "" {
 		volumeContext[contextHPCBandwidth] = vol.HPCBandwidth
+	}
+	if vol.KMSKeyID != "" {
+		volumeContext[contextKMSKeyID] = vol.KMSKeyID
 	}
 	return volumeContext
 }

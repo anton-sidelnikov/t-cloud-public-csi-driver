@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../sfsturbo
+patches:
+  - target:
+      kind: StorageClass
+      name: tcloud-public-sfsturbo-manual
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: tcloud-public-sfsturbo-manual-kms
+      # Replaced with a real key ID before applying, see deploy/manual/sfsturbo/README.md.
+      - op: add
+        path: /parameters/kmsKeyId
+        value: KMS_KEY_ID
+  - target:
+      kind: PersistentVolumeClaim
+      name: sfsturbo-pvc
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: tcloud-public-sfsturbo-manual-kms

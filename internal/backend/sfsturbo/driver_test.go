@@ -107,7 +107,7 @@ func TestBuildCreateVolumeRequestParametersOverrideConfig(t *testing.T) {
 			"vpcId":                     "vpc-sc",
 			"subnetId":                  "subnet-sc",
 			"securityGroupId":           "sg-sc",
-			"kmsKeyId":                  "kms-1",
+			"kmsKeyId":                  "0D0466B0-E727-4D9C-B35D-F84BB474A37F",
 			"description":               " shared data ",
 			"csi.storage.k8s.io/fstype": "nfs",
 		},
@@ -117,7 +117,7 @@ func TestBuildCreateVolumeRequestParametersOverrideConfig(t *testing.T) {
 	}
 	if req.SizeBytes != 601*gibibyte || req.VolumeType != ShareTypePerformance || req.AvailabilityZone != "eu-de-02" ||
 		req.VPCID != "vpc-sc" || req.SubnetID != "subnet-sc" || req.SecurityGroupID != "sg-sc" ||
-		req.KMSKeyID != "kms-1" || req.Description != "shared data" {
+		req.KMSKeyID != "0d0466b0-e727-4d9c-b35d-f84bb474a37f" || req.Description != "shared data" {
 		t.Fatalf("BuildCreateVolumeRequest() = %+v", req)
 	}
 }
@@ -212,6 +212,12 @@ func TestBuildCreateVolumeRequestErrors(t *testing.T) {
 			cfg:     networkConfig(),
 			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"expandType": "bandwidth", "hpcBw": "40M"}},
 			wantErr: "hpcBw is only valid with expandType=hpc",
+		},
+		{
+			name:    "invalid KMS key ID",
+			cfg:     networkConfig(),
+			req:     &csi.CreateVolumeRequest{Name: "pvc-1234", Parameters: map[string]string{"kmsKeyId": "alias/my-key"}},
+			wantErr: "must be a KMS key ID (UUID)",
 		},
 		{
 			name:    "unknown expand type",
