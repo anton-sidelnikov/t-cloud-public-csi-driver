@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	blocksnapshots "github.com/opentelekomcloud/gophertelekomcloud/openstack/blockstorage/v3/snapshots"
 
 	"t-cloud-public-csi-driver/internal/backend"
+	backendevs "t-cloud-public-csi-driver/internal/backend/evs"
 	"t-cloud-public-csi-driver/internal/config"
 )
 
@@ -73,7 +75,16 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 		},
 	}
 	if req.SnapshotID != "" {
+		// A volume created from a snapshot inherits the encryption of the snapshot's source volume.
 		body["volume"].(map[string]any)["snapshot_id"] = req.SnapshotID
+	} else if req.KMSKeyID != "" {
+		metadata := maps.Clone(req.Metadata)
+		if metadata == nil {
+			metadata = map[string]string{}
+		}
+		metadata[backendevs.MetadataEncrypted] = "1"
+		metadata[backendevs.MetadataCMKID] = req.KMSKeyID
+		body["volume"].(map[string]any)["metadata"] = metadata
 	}
 
 	var resp struct {
@@ -91,9 +102,27 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 		logger.Error("EVS volume did not become available", "error", err)
 		return nil, err
 	}
+	if err := s.checkEncryption(ctx, volume, req.KMSKeyID); err != nil {
+		logger.Error("EVS volume is not encrypted with the requested KMS key", "error", err)
+		return nil, err
+	}
 	logger.Info("EVS volume created", "status", volume.Status, "size_bytes", volume.SizeBytes)
 
 	return volume, nil
+}
+
+// checkEncryption verifies that a new volume uses the requested KMS key. A volume restored
+// from a snapshot inherits the encryption of its source, so it may differ from the request.
+// Such a volume is deleted, because encryption cannot be changed later.
+func (s *Service) checkEncryption(ctx context.Context, volume *backend.Volume, kmsKeyID string) error {
+	if kmsKeyID == "" || strings.EqualFold(volume.KMSKeyID, kmsKeyID) {
+		return nil
+	}
+	s.loggerOrDefault().Warn("deleting EVS volume without the requested encryption", "volume_id", volume.ID, "cmk_id", volume.KMSKeyID, "kms_key_id", kmsKeyID)
+	if err := s.DeleteVolume(ctx, volume.ID); err != nil {
+		return fmt.Errorf("EVS volume %s has KMS key %q instead of %q, and deleting it failed: %w", volume.ID, volume.KMSKeyID, kmsKeyID, err)
+	}
+	return fmt.Errorf("EVS volume %s has KMS key %q instead of %q and was deleted", volume.ID, volume.KMSKeyID, kmsKeyID)
 }
 
 func (s *Service) DeleteVolume(ctx context.Context, volumeID string) error {
@@ -467,6 +496,7 @@ type volumePayload struct {
 	VolumeType       string              `json:"volume_type"`
 	SizeGiB          int64               `json:"size"`
 	Attachments      []attachmentPayload `json:"attachments"`
+	Metadata         map[string]string   `json:"metadata"`
 }
 
 func (p volumePayload) toDomain() *backend.Volume {
@@ -488,7 +518,16 @@ func (p volumePayload) toDomain() *backend.Volume {
 		VolumeType:       p.VolumeType,
 		SizeBytes:        p.SizeGiB * gibibyte,
 		Attachments:      attachments,
+		KMSKeyID:         p.kmsKeyID(),
 	}
+}
+
+// kmsKeyID returns the encryption key from the metadata; the encrypted field is not supported by EVS.
+func (p volumePayload) kmsKeyID() string {
+	if p.Metadata[backendevs.MetadataEncrypted] != "1" {
+		return ""
+	}
+	return p.Metadata[backendevs.MetadataCMKID]
 }
 
 type attachmentPayload struct {
