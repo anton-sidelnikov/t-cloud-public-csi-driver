@@ -1,0 +1,12 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: tcloud-public-evs-manual-kms
+provisioner: csi.evs.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  volumeType: SSD
+  # Replaced with a real key ID before applying, see README.md.
+  kmsKeyId: KMS_KEY_ID
