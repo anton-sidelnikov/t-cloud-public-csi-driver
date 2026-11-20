@@ -335,6 +335,7 @@ Supported parameters:
 - `description`: optional EVS volume description.
 - `csi.storage.k8s.io/fstype`: accepted for Kubernetes CSI compatibility. Filesystem formatting is still driven by the CSI volume capability on the node side.
 - `metadata.<key>`: optional EVS metadata. The `metadata.` prefix is stripped before sending metadata to EVS.
+- `kmsKeyId`: optional ID (UUID) of a KMS key in the same region and project (`evs/default` or a custom key); the volume is created encrypted with it (metadata `__system__encrypted=1`, `__system__cmkid`). It cannot be combined with `metadata.__system__encrypted` or `metadata.__system__cmkid`. EVS needs KMS access in the project: the first encrypted disk in the console creates the agency, which needs the `EVS KMSAccess` permissions; encryption cannot be changed later. A volume restored from a snapshot inherits the encryption of the snapshot's source volume, so the metadata is not sent for restores. After creation the driver checks the volume metadata; a volume that is not encrypted with `kmsKeyId` (for example a restore of an unencrypted snapshot) is deleted and `CreateVolume` fails. Without `kmsKeyId` the driver does not check encryption. If the key is disabled or deleted, the volume cannot be attached again.
 
 Example:
 

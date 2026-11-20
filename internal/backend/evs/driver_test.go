@@ -1,6 +1,7 @@
 package evs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -186,5 +187,46 @@ func TestBuildCreateVolumeRequestSelectsAvailabilityZone(t *testing.T) {
 				t.Fatalf("got zone %q want %q", req.AvailabilityZone, tc.want)
 			}
 		})
+	}
+}
+
+func TestBuildCreateVolumeRequestKMSKeyID(t *testing.T) {
+	tests := map[string]struct {
+		params  map[string]string
+		want    string
+		wantErr string
+	}{
+		"normalized key":         {params: map[string]string{"kmsKeyId": " 0D0466B0-E727-4D9C-B35D-F84BB474A37F "}, want: "0d0466b0-e727-4d9c-b35d-f84bb474a37f"},
+		"no key":                 {params: map[string]string{}},
+		"malformed key":          {params: map[string]string{"kmsKeyId": "evs/default"}, wantErr: "must be a KMS key ID (UUID)"},
+		"conflicting encryption": {params: map[string]string{"kmsKeyId": "0d0466b0-e727-4d9c-b35d-f84bb474a37f", "metadata.__system__encrypted": "1"}, wantErr: "conflicts with kmsKeyId"},
+		"conflicting key":        {params: map[string]string{"kmsKeyId": "0d0466b0-e727-4d9c-b35d-f84bb474a37f", "metadata.__system__cmkid": "other"}, wantErr: "conflicts with kmsKeyId"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			req, err := New().BuildCreateVolumeRequest(config.Config{AvailabilityZone: "eu-de-01"}, &csi.CreateVolumeRequest{
+				Name:          "pvc-1",
+				CapacityRange: &csi.CapacityRange{RequiredBytes: 10},
+				Parameters:    tt.params,
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("BuildCreateVolumeRequest() error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || req.KMSKeyID != tt.want {
+				t.Fatalf("BuildCreateVolumeRequest() = %+v, %v; want KMSKeyID %q", req, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestVolumeContextIncludesKMSKeyID(t *testing.T) {
+	if got := New().VolumeContext(&backend.Volume{KMSKeyID: "key"})["kmsKeyId"]; got != "key" {
+		t.Fatalf("kmsKeyId = %q, want key", got)
+	}
+	if _, ok := New().VolumeContext(&backend.Volume{})["kmsKeyId"]; ok {
+		t.Fatal("kmsKeyId set for an unencrypted volume")
 	}
 }

@@ -2,6 +2,7 @@ package evs
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -19,9 +20,16 @@ const (
 	paramAvailabilityZone = "availabilityZone"
 	paramDescription      = "description"
 	paramFSType           = "csi.storage.k8s.io/fstype"
+	paramKMSKeyID         = "kmsKeyId"
 	paramMetadataPrefix   = "metadata."
 	paramVolumeType       = "volumeType"
+
+	// MetadataEncrypted and MetadataCMKID are the EVS metadata keys that enable encryption.
+	MetadataEncrypted = "__system__encrypted"
+	MetadataCMKID     = "__system__cmkid"
 )
+
+var kmsKeyIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Driver struct{}
 
@@ -80,24 +88,42 @@ func (d *Driver) BuildCreateVolumeRequest(cfg config.Config, req *csi.CreateVolu
 		return backend.CreateVolumeRequest{}, err
 	}
 
+	kmsKeyID := strings.ToLower(params[paramKMSKeyID])
+	if kmsKeyID != "" && !kmsKeyIDPattern.MatchString(kmsKeyID) {
+		return backend.CreateVolumeRequest{}, fmt.Errorf("StorageClass parameter %s=%q must be a KMS key ID (UUID)", paramKMSKeyID, params[paramKMSKeyID])
+	}
+	metadata := volumeMetadata(params)
+	if kmsKeyID != "" {
+		for _, key := range []string{MetadataEncrypted, MetadataCMKID} {
+			if _, ok := metadata[key]; ok {
+				return backend.CreateVolumeRequest{}, fmt.Errorf("StorageClass parameter %s%s conflicts with %s", paramMetadataPrefix, key, paramKMSKeyID)
+			}
+		}
+	}
+
 	return backend.CreateVolumeRequest{
 		Name:             req.GetName(),
 		SizeBytes:        req.GetCapacityRange().GetRequiredBytes(),
 		AvailabilityZone: zone,
 		VolumeType:       params[paramVolumeType],
 		Description:      params[paramDescription],
-		Metadata:         volumeMetadata(params),
+		Metadata:         metadata,
 		SnapshotID:       snapshotSourceID(req),
+		KMSKeyID:         kmsKeyID,
 	}, nil
 }
 
 func (d *Driver) VolumeContext(vol *backend.Volume) map[string]string {
-	return map[string]string{
+	volumeContext := map[string]string{
 		"name":             vol.Name,
 		"availabilityZone": vol.AvailabilityZone,
 		"volumeType":       vol.VolumeType,
 		"status":           vol.Status,
 	}
+	if vol.KMSKeyID != "" {
+		volumeContext[paramKMSKeyID] = vol.KMSKeyID
+	}
+	return volumeContext
 }
 
 func (d *Driver) PublishContext(attachment *backend.Attachment) map[string]string {
@@ -162,6 +188,7 @@ func validateAndNormalizeParameters(params map[string]string) (map[string]string
 		case key == paramAvailabilityZone,
 			key == paramDescription,
 			key == paramFSType,
+			key == paramKMSKeyID,
 			key == paramVolumeType:
 			normalized[key] = strings.TrimSpace(value)
 		case strings.HasPrefix(key, paramMetadataPrefix):
