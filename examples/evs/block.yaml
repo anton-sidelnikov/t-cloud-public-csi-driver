@@ -1,0 +1,30 @@
+# EVS disk exposed to the pod as a raw block device. Uses the evs-ssd
+# StorageClass from filesystem.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: evs-block
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeMode: Block
+  storageClassName: evs-ssd
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: evs-block-app
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: [sh, -c, "tail -f /dev/null"]
+      volumeDevices:
+        - name: data
+          devicePath: /dev/xvda
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: evs-block

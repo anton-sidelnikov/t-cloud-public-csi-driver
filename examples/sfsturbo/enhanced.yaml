@@ -1,0 +1,23 @@
+# SFS Turbo Standard-Enhanced share (10 TiB minimum).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sfsturbo-standard-enhanced
+provisioner: csi.sfsturbo.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  shareType: STANDARD
+  expandType: bandwidth
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-enhanced
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: sfsturbo-standard-enhanced
+  resources:
+    requests:
+      storage: 10Ti
