@@ -1,0 +1,23 @@
+# SFS Turbo HPC share with 40 MB/s per TiB. The size is rounded up to a
+# multiple of 1.2 TiB, so this claim gets 1228Gi.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sfsturbo-hpc-40m
+provisioner: csi.sfsturbo.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  hpcBw: 40M
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-hpc
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: sfsturbo-hpc-40m
+  resources:
+    requests:
+      storage: 1Ti

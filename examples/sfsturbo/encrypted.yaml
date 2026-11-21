@@ -1,0 +1,24 @@
+# SFS Turbo share encrypted with a custom KMS key. Replace the kmsKeyId value
+# with the ID of an enabled key in the same project.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sfsturbo-encrypted
+provisioner: csi.sfsturbo.tcloudpublic.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  shareType: STANDARD
+  kmsKeyId: 00000000-0000-0000-0000-000000000000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-encrypted
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: sfsturbo-encrypted
+  resources:
+    requests:
+      storage: 500Gi
