@@ -2,6 +2,7 @@ package sfsturbo
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -20,6 +21,8 @@ func (coreService) DeleteVolume(context.Context, string) error { return nil }
 func (coreService) ExpandVolume(context.Context, string, int64) (int64, error) {
 	return 0, nil
 }
+
+func (coreService) GetVolume(context.Context, string) (*backend.Volume, error) { return nil, nil }
 
 func TestDriverPassesBackendValidation(t *testing.T) {
 	if err := backend.Validate(New(), coreService{}); err != nil {
@@ -255,7 +258,7 @@ func TestBuildCreateVolumeRequestErrors(t *testing.T) {
 
 func TestShareMount(t *testing.T) {
 	driver := New()
-	vol := &backend.Volume{ID: "share-1", Name: "pvc-1234", ExportLocation: "192.168.0.90:/", VolumeType: ShareTypeStandard}
+	vol := &backend.Volume{ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", ExportLocation: "192.168.0.90:/", VolumeType: ShareTypeStandard}
 
 	mount, err := driver.ShareMount(vol.ID, driver.VolumeContext(vol))
 	if err != nil {
@@ -266,7 +269,32 @@ func TestShareMount(t *testing.T) {
 		t.Fatalf("ShareMount() = %+v", mount)
 	}
 
-	if _, err := driver.ShareMount(vol.ID, map[string]string{}); err == nil {
-		t.Fatal("ShareMount() without export location error = nil")
+	if _, err := driver.ShareMount(vol.ID, map[string]string{}); !errors.Is(err, backend.ErrExportLocationUnknown) {
+		t.Fatalf("ShareMount() without export location error = %v, want ErrExportLocationUnknown", err)
+	}
+
+	mount, err = driver.ShareMount(vol.ID+":/data/app/", driver.VolumeContext(vol))
+	if err != nil || mount.Source != "192.168.0.90:/data/app" {
+		t.Fatalf("ShareMount() of a subdirectory = %+v, %v; want source 192.168.0.90:/data/app", mount, err)
+	}
+}
+
+func TestParseVolumeID(t *testing.T) {
+	const shareID = "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e"
+	for volumeID, want := range map[string]string{
+		shareID:                  "",
+		shareID + ":data":        "data",
+		shareID + ":/data/app/":  "data/app",
+		strings.ToUpper(shareID): "",
+	} {
+		gotShare, gotSub, err := ParseVolumeID(volumeID)
+		if err != nil || !strings.EqualFold(gotShare, shareID) || gotSub != want {
+			t.Errorf("ParseVolumeID(%q) = %q, %q, %v; want subdirectory %q", volumeID, gotShare, gotSub, err, want)
+		}
+	}
+	for _, volumeID := range []string{"", "share-1", shareID + ":", shareID + ":/", shareID + ":a/../b", shareID + ":a//b", shareID + ":./a"} {
+		if _, _, err := ParseVolumeID(volumeID); err == nil {
+			t.Errorf("ParseVolumeID(%q) error = nil", volumeID)
+		}
 	}
 }

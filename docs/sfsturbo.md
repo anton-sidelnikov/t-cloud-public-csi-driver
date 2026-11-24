@@ -1,6 +1,6 @@
 # SFS Turbo
 
-Each volume is a separate SFS Turbo file system, mounted over NFS. Volumes can be shared by pods on many nodes.
+Each volume is a separate SFS Turbo file system, mounted over NFS. Volumes can be shared by pods on many nodes. Existing file systems and their directories can be used as volumes too.
 
 Examples: [examples/sfsturbo](../examples/sfsturbo).
 
@@ -32,14 +32,16 @@ The bundle also adds the StorageClass `tcloud-public-sfsturbo` (Standard).
 
 ## Capabilities
 
-| Feature        | Support                        |
-|----------------|--------------------------------|
-| Access modes   | all, including `ReadWriteMany` |
-| Volume modes   | `Filesystem`                   |
-| Expansion      | online                         |
-| Snapshots      | no                             |
-| Encryption     | KMS (`kmsKeyId`)               |
-| Volume metrics | yes (`kubelet_volume_stats_*`) |
+| Feature               | Support                                                               |
+|-----------------------|-----------------------------------------------------------------------|
+| Access modes          | all, including `ReadWriteMany`                                        |
+| Volume modes          | `Filesystem`                                                          |
+| Expansion             | online                                                                |
+| Snapshots             | no                                                                    |
+| Encryption            | KMS (`kmsKeyId`)                                                      |
+| Volume metrics        | yes (`kubelet_volume_stats_*`)                                        |
+| Existing file systems | whole file system or a directory, see [below](#existing-file-systems) |
+| Volume health         | with the health monitor, see [below](#volume-health)                  |
 
 Creating a file system takes several minutes.
 
@@ -84,6 +86,48 @@ Set `kmsKeyId` to the ID of an enabled custom KMS key in the same region and pro
 - If the key is disabled or deleted, the data becomes inaccessible.
 
 Example: [examples/sfsturbo/encrypted.yaml](../examples/sfsturbo/encrypted.yaml).
+
+## Existing File Systems
+
+To use a file system that was created outside Kubernetes, create a PersistentVolume with the file system ID as `volumeHandle`. The driver finds the mount address itself.
+
+```yaml
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: csi.sfsturbo.tcloudpublic.com
+    volumeHandle: <file system ID>            # whole file system
+    # volumeHandle: <file system ID>:team-a   # only the directory team-a
+```
+
+- To mount a directory, append `:` and the path inside the file system. The directory must already exist.
+- Use `persistentVolumeReclaimPolicy: Retain`. With `Delete`, deleting the claim deletes the whole file system. For a directory volume the driver refuses deletion and the PV stays `Failed`.
+- A directory volume cannot be expanded. Its size and usage are those of the whole file system.
+- The file system must be in the VPC of the nodes, see [Requirements](#requirements).
+
+Examples: [static.yaml](../examples/sfsturbo/static.yaml), [static-subdir.yaml](../examples/sfsturbo/static-subdir.yaml).
+
+## Volume Health
+
+The optional [health monitor](https://kubernetes-csi.github.io/docs/volume-health-monitor.html) checks every SFS Turbo volume once a minute. If a file system is frozen, failed or deleted, it adds a `VolumeConditionAbnormal` warning event to the claim.
+
+Install the driver with the `health-monitor` component instead of step 2 of [Installation](#installation). From the repository root:
+
+```bash
+mkdir -p overlays/sfsturbo
+cat > overlays/sfsturbo/kustomization.yaml <<EOF
+resources:
+  - ../../deploy/kubernetes/sfsturbo   # CCE: ../../deploy/kubernetes/cce/sfsturbo
+components:
+  - ../../deploy/kubernetes/components/health-monitor
+EOF
+kubectl apply -k overlays/sfsturbo
+```
+
+Abnormal volumes:
+
+```bash
+kubectl get events -A --field-selector reason=VolumeConditionAbnormal
+```
 
 ## Troubleshooting
 

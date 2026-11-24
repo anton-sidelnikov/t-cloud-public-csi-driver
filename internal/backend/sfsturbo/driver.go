@@ -2,7 +2,9 @@ package sfsturbo
 
 import (
 	"fmt"
+	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -48,6 +50,30 @@ var mountOptions = []string{"vers=3", "timeo=600", "noresvport", "nolock", "tcp"
 var shareNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{3,63}$`)
 
 var kmsKeyIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+var shareIDPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
+
+// subPathSeparator separates the share ID from the subdirectory in the volume ID of a
+// static volume, for example "<share ID>:data/app".
+const subPathSeparator = ":"
+
+// ParseVolumeID splits a volume ID into the share ID and an optional subdirectory of the
+// share. Dynamic volumes are whole shares, static volumes may be "<share ID>:<subdirectory>".
+// The subdirectory is returned without leading and trailing slashes.
+func ParseVolumeID(volumeID string) (shareID, subPath string, err error) {
+	shareID, rawSubPath, hasSubPath := strings.Cut(volumeID, subPathSeparator)
+	if !shareIDPattern.MatchString(shareID) {
+		return "", "", fmt.Errorf("volume ID %q must be an SFS Turbo share ID, optionally followed by %q and a subdirectory", volumeID, subPathSeparator)
+	}
+	if !hasSubPath {
+		return shareID, "", nil
+	}
+	segments := strings.Split(strings.Trim(rawSubPath, "/"), "/")
+	if slices.Contains(segments, "..") || slices.Contains(segments, ".") || slices.Contains(segments, "") {
+		return "", "", fmt.Errorf("volume ID %q has an invalid subdirectory %q", volumeID, rawSubPath)
+	}
+	return shareID, path.Join(segments...), nil
+}
 
 type Driver struct{}
 
@@ -173,9 +199,16 @@ func (d *Driver) VolumeContext(vol *backend.Volume) map[string]string {
 }
 
 func (d *Driver) ShareMount(volumeID string, volumeContext map[string]string) (backend.ShareMount, error) {
+	_, subPath, err := ParseVolumeID(volumeID)
+	if err != nil {
+		return backend.ShareMount{}, err
+	}
 	source := strings.TrimSpace(volumeContext[ContextExportLocation])
 	if source == "" {
-		return backend.ShareMount{}, fmt.Errorf("volume %s has no %s in its volume context", volumeID, ContextExportLocation)
+		return backend.ShareMount{}, fmt.Errorf("volume %s: %w", volumeID, backend.ErrExportLocationUnknown)
+	}
+	if subPath != "" {
+		source = strings.TrimRight(source, "/") + "/" + subPath
 	}
 	return backend.ShareMount{
 		Source:  source,
@@ -188,6 +221,8 @@ func (d *Driver) ControllerCapabilities() []csi.ControllerServiceCapability_RPC_
 	return []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_GET_VOLUME,
+		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
 	}
 }
 

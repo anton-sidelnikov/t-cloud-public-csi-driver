@@ -74,7 +74,7 @@ func (d *Driver) Run(ctx context.Context) error {
 
 	csi.RegisterIdentityServer(server, newIdentityServer(d.cfg, d.driver))
 	csi.RegisterControllerServer(server, newControllerServer(d.cfg, d.driver, d.service))
-	csi.RegisterNodeServer(server, newNodeServer(d.cfg, d.driver))
+	csi.RegisterNodeServer(server, newNodeServer(d.cfg, d.driver, d.service))
 
 	errCh := make(chan error, 1)
 	go func() {

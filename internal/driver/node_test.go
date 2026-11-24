@@ -393,7 +393,7 @@ func TestNodeStageVolumeRequiresDevicePathForFilesystem(t *testing.T) {
 }
 
 func TestNodeCapabilitiesExposeStageAndExpand(t *testing.T) {
-	server := newNodeServer(config.Config{}, backendevs.New())
+	server := newNodeServer(config.Config{}, backendevs.New(), nil)
 
 	resp, err := server.NodeGetCapabilities(context.Background(), &csi.NodeGetCapabilitiesRequest{})
 	if err != nil {

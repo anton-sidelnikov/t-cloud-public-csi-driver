@@ -2,7 +2,10 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"maps"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -16,6 +19,7 @@ type nodeServer struct {
 	csi.UnimplementedNodeServer
 	cfg            config.Config
 	driver         backend.Driver
+	volumeGetter   backend.VolumeGetter
 	nodeIDResolver nodeIDResolver
 	zoneResolver   nodeZoneResolver
 	deviceResolver devicePathResolver
@@ -25,11 +29,13 @@ type nodeServer struct {
 	statter        volumeStatter
 }
 
-func newNodeServer(cfg config.Config, driver backend.Driver) *nodeServer {
+func newNodeServer(cfg config.Config, driver backend.Driver, service backend.Service) *nodeServer {
 	runner := &execRunner{}
+	getter, _ := service.(backend.VolumeGetter)
 	return &nodeServer{
 		cfg:            cfg,
 		driver:         driver,
+		volumeGetter:   getter,
 		nodeIDResolver: newNodeIDResolver(cfg),
 		zoneResolver:   newNodeZoneResolver(cfg),
 		deviceResolver: newDevicePathResolver(cfg),
@@ -268,7 +274,13 @@ func (s *nodeServer) stageFileShare(ctx context.Context, shareDriver backend.Fil
 	}
 
 	share, err := shareDriver.ShareMount(req.GetVolumeId(), req.GetVolumeContext())
+	if errors.Is(err, backend.ErrExportLocationUnknown) && s.volumeGetter != nil {
+		share, err = s.lookUpShareMount(ctx, shareDriver, req)
+	}
 	if err != nil {
+		if _, ok := status.FromError(err); ok {
+			return nil, err
+		}
 		return nil, status.Errorf(codes.InvalidArgument, "file share mount: %v", err)
 	}
 
@@ -291,6 +303,29 @@ func (s *nodeServer) stageFileShare(ctx context.Context, shareDriver backend.Fil
 	}
 
 	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+// lookUpShareMount completes the volume context of a statically provisioned volume with
+// the context of the volume as reported by the cloud.
+func (s *nodeServer) lookUpShareMount(ctx context.Context, shareDriver backend.FileShareDriver, req *csi.NodeStageVolumeRequest) (backend.ShareMount, error) {
+	vol, err := s.volumeGetter.GetVolume(ctx, req.GetVolumeId())
+	if errors.Is(err, backend.ErrVolumeNotFound) {
+		return backend.ShareMount{}, status.Errorf(codes.NotFound, "look up volume: %v", err)
+	}
+	if err != nil {
+		return backend.ShareMount{}, status.Errorf(codes.Internal, "look up volume: %v", err)
+	}
+	volumeContext := maps.Clone(req.GetVolumeContext())
+	if volumeContext == nil {
+		volumeContext = map[string]string{}
+	}
+	for key, value := range shareDriver.VolumeContext(vol) {
+		if strings.TrimSpace(volumeContext[key]) == "" {
+			volumeContext[key] = value
+		}
+	}
+	s.loggerOrDefault().Info("looked up file share volume context", "volume_id", req.GetVolumeId())
+	return shareDriver.ShareMount(req.GetVolumeId(), volumeContext)
 }
 
 func (s *nodeServer) blockDriver() (backend.BlockDriver, error) {

@@ -174,7 +174,16 @@ func (s *Service) CreateVolume(ctx context.Context, req backend.CreateVolumeRequ
 }
 
 // DeleteVolume returns only after the share is gone, so a failed deletion is retried.
-func (s *Service) DeleteVolume(ctx context.Context, shareID string) error {
+// Static volumes that are a subdirectory of a share are not deleted.
+func (s *Service) DeleteVolume(ctx context.Context, volumeID string) error {
+	shareID, subPath, err := backendsfsturbo.ParseVolumeID(volumeID)
+	if err != nil {
+		s.logger.Warn("not deleting a volume with an invalid ID", "volume_id", volumeID, "error", err)
+		return nil
+	}
+	if subPath != "" {
+		return fmt.Errorf("volume %s is the subdirectory %q of SFS Turbo share %s, which is not deleted; use the Retain reclaim policy: %w", volumeID, subPath, shareID, backend.ErrVolumeOperationNotSupported)
+	}
 	logger := s.logger.With("share_id", shareID)
 
 	share, err := s.api.Get(shareID)
@@ -218,7 +227,14 @@ func (s *Service) DeleteVolume(ctx context.Context, shareID string) error {
 
 // ExpandVolume grows the share to at least the requested size. SFS Turbo requires a minimum
 // increment (100 GiB, or 1.2 TiB steps for HPC), so the result may be larger than requested.
-func (s *Service) ExpandVolume(ctx context.Context, shareID string, newSizeBytes int64) (int64, error) {
+func (s *Service) ExpandVolume(ctx context.Context, volumeID string, newSizeBytes int64) (int64, error) {
+	shareID, subPath, err := backendsfsturbo.ParseVolumeID(volumeID)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %w", err, backend.ErrVolumeNotFound)
+	}
+	if subPath != "" {
+		return 0, fmt.Errorf("volume %s is the subdirectory %q of SFS Turbo share %s and cannot be expanded: %w", volumeID, subPath, shareID, backend.ErrVolumeOperationNotSupported)
+	}
 	requestedGiB := backendsfsturbo.SizeBytesToGiB(newSizeBytes)
 	logger := s.logger.With("share_id", shareID, "requested_gib", requestedGiB)
 
@@ -274,6 +290,25 @@ func (s *Service) ExpandVolume(ctx context.Context, shareID string, newSizeBytes
 	}
 	logger.Info("SFS Turbo share expanded", "size_gib", sizeGiB)
 	return sizeGiB * gibibyte, nil
+}
+
+// GetVolume returns the share of a volume. For a subdirectory volume the share is returned
+// with the volume ID.
+func (s *Service) GetVolume(_ context.Context, volumeID string) (*backend.Volume, error) {
+	shareID, _, err := backendsfsturbo.ParseVolumeID(volumeID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", err, backend.ErrVolumeNotFound)
+	}
+	share, err := s.api.Get(shareID)
+	if isNotFound(err) || (err == nil && share.Status == statusDeleted) {
+		return nil, fmt.Errorf("SFS Turbo share %s: %w", shareID, backend.ErrVolumeNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get SFS Turbo share %s: %w", shareID, err)
+	}
+	vol := toVolume(share)
+	vol.ID = volumeID
+	return vol, nil
 }
 
 func (s *Service) findByName(name string) (*shares.Turbo, error) {
@@ -435,6 +470,26 @@ func toVolume(share *shares.Turbo) *backend.Volume {
 		ExpandType:       share.ExpandType,
 		HPCBandwidth:     share.HpcBW,
 		KMSKeyID:         share.CryptKeyID,
+		Condition:        shareCondition(share),
+	}
+}
+
+// shareCondition reports a share as abnormal unless it is available.
+func shareCondition(share *shares.Turbo) backend.VolumeCondition {
+	switch share.Status {
+	case statusActive:
+		if share.SubStatus == subStatusExpanding {
+			return backend.VolumeCondition{Message: "SFS Turbo share is being expanded"}
+		}
+		return backend.VolumeCondition{Message: "SFS Turbo share is available"}
+	case statusCreating:
+		return backend.VolumeCondition{Abnormal: true, Message: "SFS Turbo share is being created"}
+	case statusFailed, statusCreateFailed:
+		return backend.VolumeCondition{Abnormal: true, Message: fmt.Sprintf("SFS Turbo share failed (status %s)", share.Status)}
+	case statusFrozen:
+		return backend.VolumeCondition{Abnormal: true, Message: "SFS Turbo share is frozen"}
+	default:
+		return backend.VolumeCondition{Abnormal: true, Message: fmt.Sprintf("SFS Turbo share has status %s", share.Status)}
 	}
 }
 
