@@ -142,3 +142,50 @@ func TestFromEnvRejectsInvalidTypedValues(t *testing.T) {
 		t.Fatal("expected error for invalid typed values")
 	}
 }
+
+func TestFromEnvValidatesAccessKeys(t *testing.T) {
+	tests := map[string]struct {
+		env     map[string]string
+		wantErr bool
+	}{
+		"none":              {},
+		"both":              {env: map[string]string{"OS_ACCESS_KEY": "ak", "OS_SECRET_KEY": "sk", "OS_SECURITY_TOKEN": "token"}},
+		"only access key":   {env: map[string]string{"OS_ACCESS_KEY": "ak"}, wantErr: true},
+		"only secret key":   {env: map[string]string{"OS_SECRET_KEY": "sk"}, wantErr: true},
+		"token without key": {env: map[string]string{"OS_SECURITY_TOKEN": "token"}, wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("OS_REGION", "eu-de")
+			t.Setenv("OS_AUTH_URL", "https://iam.example.com/v3")
+			t.Setenv("OS_USERNAME", "tester")
+			t.Setenv("OS_PASSWORD", "secret")
+			t.Setenv("OS_PROJECT_NAME", "demo")
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+			_, err := FromEnv()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("FromEnv error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFromEnvAccessKeysReplacePasswordOnlyForGPSFS(t *testing.T) {
+	for backend, wantErr := range map[string]bool{BackendGPSFS: false, BackendEVS: true, BackendSFSTurbo: true} {
+		t.Run(backend, func(t *testing.T) {
+			t.Setenv("CSI_BACKEND", backend)
+			t.Setenv("OS_REGION", "eu-de")
+			t.Setenv("OS_ACCESS_KEY", "ak")
+			t.Setenv("OS_SECRET_KEY", "sk")
+			cfg, err := FromEnv()
+			if (err != nil) != wantErr {
+				t.Fatalf("FromEnv error = %v, wantErr %v", err, wantErr)
+			}
+			if err == nil && !cfg.UsesAccessKeys() {
+				t.Fatal("expected access key authentication")
+			}
+		})
+	}
+}

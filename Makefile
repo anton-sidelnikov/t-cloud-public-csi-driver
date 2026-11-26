@@ -14,7 +14,7 @@ KUSTOMIZE_DIR := ./deploy/kubernetes
 FUNCTIONAL_TF_DIR := ./test/functional/terraform
 FUNCTIONAL_CACHE_DIR := $(CURDIR)/.cache/functional
 FUNCTIONAL_KUBECONFIG := $(FUNCTIONAL_CACHE_DIR)/kubeconfig
-FUNCTIONAL_PACKAGES ?= ./test/functional/evs ./test/functional/sfsturbo
+FUNCTIONAL_PACKAGES ?= ./test/functional/evs ./test/functional/sfsturbo ./test/functional/gpsfs
 FUNCTIONAL_TF_OUTPUT := terraform -chdir=$(FUNCTIONAL_TF_DIR) output -raw
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)

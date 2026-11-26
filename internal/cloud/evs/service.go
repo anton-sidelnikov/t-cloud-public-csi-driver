@@ -236,19 +236,13 @@ func (s *Service) CreateSnapshot(ctx context.Context, volumeID, name string) (*b
 	logger := s.loggerOrDefault().With("volume_id", volumeID, "snapshot_name", name)
 	logger.Info("creating EVS snapshot")
 
-	result := blocksnapshots.Create(s.blockStore, blocksnapshots.CreateOpts{
+	snapshot, err := blocksnapshots.Create(s.blockStore, blocksnapshots.CreateOpts{
 		VolumeID: volumeID,
 		Name:     name,
 		Force:    true,
 	})
-	if result.Err != nil {
-		logger.Error("create EVS snapshot request failed", "error", result.Err)
-		return nil, result.Err
-	}
-
-	snapshot, err := result.Extract()
 	if err != nil {
-		logger.Error("extract EVS snapshot create response failed", "error", err)
+		logger.Error("create EVS snapshot request failed", "error", err)
 		return nil, err
 	}
 
@@ -269,10 +263,9 @@ func (s *Service) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 	logger := s.loggerOrDefault().With("snapshot_id", snapshotID)
 	logger.Info("deleting EVS snapshot")
 
-	result := blocksnapshots.Delete(s.blockStore, snapshotID)
-	if result.Err != nil {
-		logger.Error("delete EVS snapshot request failed", "error", result.Err)
-		return result.Err
+	if err := blocksnapshots.Delete(s.blockStore, snapshotID); err != nil {
+		logger.Error("delete EVS snapshot request failed", "error", err)
+		return err
 	}
 	logger.Info("delete EVS snapshot request accepted")
 	return nil
@@ -281,12 +274,7 @@ func (s *Service) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 func (s *Service) GetSnapshot(ctx context.Context, snapshotID string) (*backend.Snapshot, error) {
 	_ = ctx
 
-	result := blocksnapshots.Get(s.blockStore, snapshotID)
-	if result.Err != nil {
-		return nil, result.Err
-	}
-
-	snapshot, err := result.Extract()
+	snapshot, err := blocksnapshots.Get(s.blockStore, snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -302,15 +290,11 @@ func (s *Service) ListSnapshots(ctx context.Context, req backend.ListSnapshotsRe
 		VolumeID: strings.TrimSpace(req.SourceVolumeID),
 	}
 
-	pages, err := blocksnapshots.List(s.blockStore, opts).AllPages()
+	list, err := blocksnapshots.List(s.blockStore, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	items, err := blocksnapshots.ExtractSnapshots(pages)
-	if err != nil {
-		return nil, err
-	}
+	items := list.Snapshots
 
 	snapshots := make([]*backend.Snapshot, 0, len(items))
 	for i := range items {

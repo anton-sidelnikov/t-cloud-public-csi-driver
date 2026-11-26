@@ -19,7 +19,7 @@ make image IMAGE=ghcr.io/example/tcloud-public-csi-driver:dev
 
 ## Functional Tests
 
-The tests create a CCE cluster with Terraform ([test/functional/terraform](../test/functional/terraform)), install the driver and run the EVS and SFS Turbo scenarios. The credentials are the `OS_*` variables from [configuration.md](configuration.md).
+The tests create a CCE cluster with Terraform ([test/functional/terraform](../test/functional/terraform)), install the driver and run the EVS and SFS Turbo scenarios. The SFS General Purpose tests check authentication and the file system API without a cluster; they need only the `OS_*` variables and `CSI_TEST_VPC_ID`. The credentials are the `OS_*` variables from [configuration.md](configuration.md).
 
 ```bash
 export OS_AUTH_URL=... OS_REGION=eu-de OS_DOMAIN_NAME=... OS_USERNAME=... OS_PASSWORD=... OS_PROJECT_ID=...
@@ -32,7 +32,11 @@ make test-functional
 make functional-infra-down
 ```
 
-`FUNCTIONAL_PACKAGES` selects the test packages (default `./test/functional/evs ./test/functional/sfsturbo`). The SFS Turbo tests are billed and add about 20–30 minutes. Set `CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true` if the cluster certificate is not trusted.
+`FUNCTIONAL_PACKAGES` selects the test packages (default `./test/functional/evs ./test/functional/sfsturbo ./test/functional/gpsfs`). The SFS Turbo tests are billed and add about 20–30 minutes. Set `CSI_TEST_INSECURE_SKIP_TLS_VERIFY=true` if the cluster certificate is not trusted. Set `OS_ACCESS_KEY` and `OS_SECRET_KEY` to test permanent access keys; otherwise temporary keys are used.
+
+```bash
+CSI_TEST_VPC_ID=... go test -tags=functional ./test/functional/gpsfs -v
+```
 
 ## Manual Tests
 

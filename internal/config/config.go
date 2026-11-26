@@ -32,12 +32,18 @@ type Config struct {
 	Region           string `env:"OS_REGION,required,notEmpty"`
 	AvailabilityZone string `env:"OS_AVAILABILITY_ZONE"`
 
-	AuthURL     string `env:"OS_AUTH_URL,required,notEmpty"`
+	AuthURL     string `env:"OS_AUTH_URL"`
 	DomainName  string `env:"OS_DOMAIN_NAME"`
-	UserName    string `env:"OS_USERNAME,required,notEmpty"`
-	Password    string `env:"OS_PASSWORD,required,notEmpty"`
+	UserName    string `env:"OS_USERNAME"`
+	Password    string `env:"OS_PASSWORD"`
 	ProjectID   string `env:"OS_PROJECT_ID"`
 	ProjectName string `env:"OS_PROJECT_NAME"`
+
+	// Optional AK/SK for General Purpose SFS. When set, OS_AUTH_URL, OS_USERNAME, OS_PASSWORD
+	// and the project are not needed; when unset, temporary AK/SK are issued with them.
+	AccessKey     string `env:"OS_ACCESS_KEY"`
+	SecretKey     string `env:"OS_SECRET_KEY"`
+	SecurityToken string `env:"OS_SECURITY_TOKEN"`
 
 	// Default network for SFS file shares; StorageClass parameters take precedence.
 	VPCID           string `env:"OS_VPC_ID"`
@@ -68,6 +74,15 @@ func FromEnv() (Config, error) {
 	if cfg.Region == "" {
 		return Config{}, fmt.Errorf("OS_REGION is required")
 	}
+	if (cfg.AccessKey == "") != (cfg.SecretKey == "") {
+		return Config{}, fmt.Errorf("OS_ACCESS_KEY and OS_SECRET_KEY must be set together")
+	}
+	if cfg.SecurityToken != "" && cfg.AccessKey == "" {
+		return Config{}, fmt.Errorf("OS_SECURITY_TOKEN requires OS_ACCESS_KEY and OS_SECRET_KEY")
+	}
+	if cfg.UsesAccessKeys() {
+		return cfg, nil
+	}
 	if cfg.AuthURL == "" {
 		return Config{}, fmt.Errorf("OS_AUTH_URL is required")
 	}
@@ -82,6 +97,12 @@ func FromEnv() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// UsesAccessKeys reports whether the backend authenticates only with OS_ACCESS_KEY and
+// OS_SECRET_KEY. Only General Purpose SFS supports this.
+func (c Config) UsesAccessKeys() bool {
+	return c.Backend == BackendGPSFS && c.AccessKey != ""
 }
 
 func defaultEndpoint(driverName string) string {
@@ -100,6 +121,9 @@ func (c *Config) normalize() {
 	c.UserName = strings.TrimSpace(c.UserName)
 	c.ProjectID = strings.TrimSpace(c.ProjectID)
 	c.ProjectName = strings.TrimSpace(c.ProjectName)
+	c.AccessKey = strings.TrimSpace(c.AccessKey)
+	c.SecretKey = strings.TrimSpace(c.SecretKey)
+	c.SecurityToken = strings.TrimSpace(c.SecurityToken)
 	c.VPCID = strings.TrimSpace(c.VPCID)
 	c.SubnetID = strings.TrimSpace(c.SubnetID)
 	c.SecurityGroupID = strings.TrimSpace(c.SecurityGroupID)
