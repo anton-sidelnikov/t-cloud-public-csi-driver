@@ -78,3 +78,8 @@ output "kubeconfig" {
   value       = yamlencode(local.kubeconfig)
   sensitive   = true
 }
+
+output "gpsfs_endpoint_id" {
+  description = "VPC endpoint for SFS General Purpose file systems."
+  value       = opentelekomcloud_vpcep_endpoint_v1.gpsfs.id
+}

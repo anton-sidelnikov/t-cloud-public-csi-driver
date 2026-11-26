@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcloud-public-csi-controller
+  namespace: tcloud-public-csi-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: csi-provisioner
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --timeout=2m
+        - name: csi-attacher
+          $patch: delete
+        - name: csi-snapshotter
+          $patch: delete
+        - name: tcloud-public-csi-driver
+          env:
+            - name: CSI_BACKEND
+              value: gpsfs
+            # With OS_ACCESS_KEY and OS_SECRET_KEY the password credentials are not needed.
+            - name: OS_AUTH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AUTH_URL
+                  optional: true
+            - name: OS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_USERNAME
+                  optional: true
+            - name: OS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PASSWORD
+                  optional: true
+            - name: OS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_ACCESS_KEY
+                  optional: true
+            - name: OS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SECRET_KEY
+                  optional: true
+            - name: OS_SECURITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SECURITY_TOKEN
+                  optional: true
+            - name: OS_VPC_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_VPC_ID
+                  optional: true

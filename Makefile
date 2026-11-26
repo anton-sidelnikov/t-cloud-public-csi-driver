@@ -55,7 +55,7 @@ help:
 	@echo "  make functional-infra-up    Provision functional-test infrastructure"
 	@echo "  make functional-kubeconfig  Write functional-test kubeconfig"
 	@echo "  make test-functional        Run functional tests"
-	@echo "  make functional-cleanup-shares  Delete SFS Turbo shares leaked in the functional VPC"
+	@echo "  make functional-cleanup-shares  Delete SFS shares and file systems leaked by functional tests"
 	@echo "  make functional-infra-down  Destroy functional-test infrastructure"
 	@echo "  make manifests        Print rendered Kubernetes manifests"
 	@echo "  make install          Apply Kubernetes manifests"
@@ -161,7 +161,10 @@ test-functional:
 functional-cleanup-shares:
 	@vpc_id=$$($(FUNCTIONAL_TF_OUTPUT) vpc_id 2>/dev/null); \
 	if [ -z "$$vpc_id" ]; then echo "no functional VPC, skipping share cleanup"; exit 0; fi; \
-	go run -tags=functional ./test/functional/cleanup/sfsturbo -vpc-id "$$vpc_id"
+	status=0; \
+	go run -tags=functional ./test/functional/cleanup/gpsfs -vpc-id "$$vpc_id" || status=1; \
+	go run -tags=functional ./test/functional/cleanup/sfsturbo -vpc-id "$$vpc_id" || status=1; \
+	exit $$status
 
 .PHONY: functional-infra-down
 functional-infra-down:

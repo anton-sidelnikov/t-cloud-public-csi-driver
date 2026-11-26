@@ -60,6 +60,17 @@ resource "opentelekomcloud_vpc_subnet_v1" "e2e" {
   tags = local.common_tags
 }
 
+# SFS General Purpose file systems are reachable only through a VPC endpoint. The endpoint
+# service is not public, so it is referenced by ID.
+resource "opentelekomcloud_vpcep_endpoint_v1" "gpsfs" {
+  service_id = var.gpsfs_endpoint_service_id
+  vpc_id     = opentelekomcloud_vpc_v1.e2e.id
+  subnet_id  = opentelekomcloud_vpc_subnet_v1.e2e.id
+  enable_dns = true
+
+  tags = local.common_tags
+}
+
 # SFS Turbo shares created by the functional tests use the project default security group.
 # SFS Turbo opens the NFS ports in it when a share is created.
 data "opentelekomcloud_networking_secgroup_v2" "default" {

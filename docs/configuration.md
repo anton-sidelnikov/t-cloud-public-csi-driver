@@ -2,7 +2,7 @@
 
 ## Cloud Secret
 
-The controller and node plugins read the credentials from the secret `tcloud-public-csi-cloud-config` in the driver namespace: `tcloud-public-csi-system` (EVS) and `tcloud-public-csi-sfsturbo` (SFS Turbo). Template: [deploy/kubernetes/secret.example.yaml](../deploy/kubernetes/secret.example.yaml).
+The controller and node plugins read the credentials from the secret `tcloud-public-csi-cloud-config` in the driver namespace: `tcloud-public-csi-system` (EVS), `tcloud-public-csi-sfsturbo` (SFS Turbo) and `tcloud-public-csi-gpsfs` (SFS General Purpose). Template: [deploy/kubernetes/secret.example.yaml](../deploy/kubernetes/secret.example.yaml).
 
 | Key                                                 | Required  | Description                                                                          |
 |-----------------------------------------------------|-----------|--------------------------------------------------------------------------------------|
@@ -15,6 +15,7 @@ The controller and node plugins read the credentials from the secret `tcloud-pub
 | `OS_SECURITY_TOKEN`                                 | no        | SFS General Purpose only: security token of temporary access keys.                   |
 | `OS_AVAILABILITY_ZONE`                              | no        | Default zone. Nodes detect their zone themselves; this value is a fallback.          |
 | `OS_VPC_ID`, `OS_SUBNET_ID`, `OS_SECURITY_GROUP_ID` | SFS Turbo | Default network of new file systems. `OS_SUBNET_ID` is the network ID of the subnet. |
+| `OS_VPC_ID`                                         | SFS GP    | Default VPC allowed to access new file systems.                                      |
 
 ## Driver Settings
 
@@ -22,7 +23,7 @@ Set in the controller and node manifests; the defaults fit most clusters.
 
 | Variable                   | Default     | Description                                                     |
 |----------------------------|-------------|-----------------------------------------------------------------|
-| `CSI_BACKEND`              | `evs`       | `evs` or `sfsturbo`.                                            |
+| `CSI_BACKEND`              | `evs`       | `evs`, `sfsturbo` or `gpsfs`.                                   |
 | `CSI_DRIVER_NAME`          | per backend | CSI driver name.                                                |
 | `CSI_MAX_VOLUMES_PER_NODE` | `32`        | EVS disks per node.                                             |
 | `CSI_REQUEST_TIMEOUT`      | `2m`        | Timeout of cloud operations (`10m` in the SFS Turbo manifests). |

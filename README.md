@@ -6,7 +6,7 @@ Kubernetes [CSI](https://kubernetes-csi.github.io/docs/) driver for T Cloud Publ
 |------------------------------|---------------------------------|----------------------------------------|--------------------------------------|----------------------------------------|
 | EVS (block disks)            | `csi.evs.tcloudpublic.com`      | ReadWriteOnce, filesystem or raw block | [docs/evs.md](docs/evs.md)           | [examples/evs](examples/evs)           |
 | SFS Turbo (NFS file systems) | `csi.sfsturbo.tcloudpublic.com` | ReadWriteMany                          | [docs/sfsturbo.md](docs/sfsturbo.md) | [examples/sfsturbo](examples/sfsturbo) |
-| SFS General Purpose          | `csi.gpsfs.tcloudpublic.com`    | ReadWriteMany                          | planned                              |                                        |
+| SFS General Purpose          | `csi.gpsfs.tcloudpublic.com`    | ReadWriteMany                          | [docs/gpsfs.md](docs/gpsfs.md)       | [examples/gpsfs](examples/gpsfs)       |
 
 > The driver is in early development. Parameters and manifests may change between versions.
 
@@ -18,11 +18,12 @@ Kubernetes [CSI](https://kubernetes-csi.github.io/docs/) driver for T Cloud Publ
 - KMS encryption for EVS and SFS Turbo
 - SFS Turbo: Standard, Performance, Enhanced and HPC file systems
 - SFS Turbo: existing file systems and their directories as volumes, volume health monitoring
+- SFS General Purpose: shared file systems without size limits, existing file systems and their directories as volumes
 
 ## Requirements
 
 - Kubernetes nodes are ECS instances in the T Cloud Public project used by the driver.
-- An IAM user with permissions for the storage service (EVS, SFS Turbo) and, for encryption, KMS.
+- An IAM user with permissions for the storage service (EVS, SFS Turbo, SFS General Purpose) and, for encryption, KMS.
 - For EVS snapshots: the [snapshot CRDs](https://github.com/kubernetes-csi/external-snapshotter/tree/master/client/config/crd).
 
 ## Quick Start
@@ -54,7 +55,7 @@ Kubernetes [CSI](https://kubernetes-csi.github.io/docs/) driver for T Cloud Publ
    kubectl get pvc evs-data
    ```
 
-To install SFS Turbo, see [docs/sfsturbo.md](docs/sfsturbo.md#installation).
+To install SFS Turbo or SFS General Purpose, see [docs/sfsturbo.md](docs/sfsturbo.md#installation) and [docs/gpsfs.md](docs/gpsfs.md#installation).
 
 ## Images
 
@@ -64,5 +65,6 @@ Images are published to `ghcr.io/anton-sidelnikov/t-cloud-public-csi-driver`: `l
 
 - [EVS](docs/evs.md)
 - [SFS Turbo](docs/sfsturbo.md)
+- [SFS General Purpose](docs/gpsfs.md)
 - [Configuration](docs/configuration.md)
 - [Development and testing](docs/development.md)

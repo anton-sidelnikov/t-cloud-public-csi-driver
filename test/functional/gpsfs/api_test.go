@@ -1,7 +1,7 @@
 //go:build functional
 
 // Package gpsfsfunctional checks General Purpose SFS authentication and the file system
-// API against the cloud. It does not need a cluster.
+// API against the cloud, and the driver on a cluster. The API tests do not need a cluster.
 package gpsfsfunctional
 
 import (

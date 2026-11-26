@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tcloud-public-csi-node
+  namespace: tcloud-public-csi-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: node-driver-registrar
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.gpsfs.tcloudpublic.com/csi.sock
+        - name: tcloud-public-csi-driver
+          env:
+            - name: CSI_BACKEND
+              value: gpsfs
+            # With OS_ACCESS_KEY and OS_SECRET_KEY the password credentials are not needed.
+            - name: OS_AUTH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_AUTH_URL
+                  optional: true
+            - name: OS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_USERNAME
+                  optional: true
+            - name: OS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_PASSWORD
+                  optional: true
+            - name: OS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_ACCESS_KEY
+                  optional: true
+            - name: OS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SECRET_KEY
+                  optional: true
+            - name: OS_SECURITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tcloud-public-csi-cloud-config
+                  key: OS_SECURITY_TOKEN
+                  optional: true
+        # hostNetwork: must not collide with the EVS (:9808) and SFS Turbo (:9809) node probes.
+        - name: liveness-probe
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=:9810
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.gpsfs.tcloudpublic.com
+            type: DirectoryOrCreate
