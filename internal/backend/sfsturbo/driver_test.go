@@ -265,7 +265,7 @@ func TestShareMount(t *testing.T) {
 		t.Fatalf("ShareMount() error = %v", err)
 	}
 	if mount.Source != "192.168.0.90:/" || mount.FSType != "nfs" ||
-		strings.Join(mount.Options, ",") != "vers=3,timeo=600,noresvport,nolock,tcp" {
+		strings.Join(mount.Options, ",") != "vers=3,timeo=600,noresvport,nolock,tcp,nosharecache" {
 		t.Fatalf("ShareMount() = %+v", mount)
 	}
 

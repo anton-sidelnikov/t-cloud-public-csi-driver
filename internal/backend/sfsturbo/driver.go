@@ -43,8 +43,11 @@ const (
 	fsTypeNFS = "nfs"
 )
 
-// mountOptions are the NFS options recommended by the OTC SFS Turbo documentation.
-var mountOptions = []string{"vers=3", "timeo=600", "noresvport", "nolock", "tcp"}
+// mountOptions are the NFS options recommended by the OTC SFS Turbo documentation, plus
+// nosharecache. It gives every mount of a share its own NFS superblock. Otherwise mounts of
+// the same share (whole share and directories) look like references to each other, and
+// kubelet never unstages them.
+var mountOptions = []string{"vers=3", "timeo=600", "noresvport", "nolock", "tcp", "nosharecache"}
 
 // SFS Turbo names have 4 to 64 characters, start with a letter, and contain letters, digits, hyphens, and underscores.
 var shareNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{3,63}$`)

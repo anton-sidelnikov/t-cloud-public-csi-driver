@@ -100,7 +100,7 @@ To use a file system that was created outside Kubernetes, create a PersistentVol
 ```
 
 - To mount a directory, append `:` and the path inside the file system. The directory must already exist.
-- Use `persistentVolumeReclaimPolicy: Retain`. With `Delete`, deleting the claim deletes the whole file system. For a directory volume the driver refuses deletion and the PV stays `Failed`.
+- Use `persistentVolumeReclaimPolicy: Retain`. With `Delete`, deleting the claim deletes the whole file system. For a directory volume the driver refuses deletion with a `VolumeFailedDelete` event; set the PV to `Retain` and delete it.
 - A directory volume cannot be expanded. Its size and usage are those of the whole file system.
 - The file system must be in the VPC of the nodes, see [Requirements](#requirements).
 

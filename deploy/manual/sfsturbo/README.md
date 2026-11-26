@@ -131,21 +131,28 @@ kubectl -n tcloud-public-csi-sfsturbo logs daemonset/tcloud-public-csi-node-sfst
 The pod log must list `shared.txt` and `app` under `/root-share` and `app.txt`
 under `/app-dir`. The static PVs have no export location, the node looks it up.
 
+The root PV has the same volume handle as `sfsturbo-pvc` and shares its staging
+mount, so its lookup is logged only when no pod of `sfsturbo-pvc` runs on the
+node. After the pods are deleted, both staging mounts must be removed from the
+node (the node log shows `unmounting volume path` for both `globalmount` paths).
+
 The directory PV has `persistentVolumeReclaimPolicy: Delete`. Deleting its claim
-must not delete the share; the PV becomes `Failed`:
+must not delete the share; the PV stays `Released` with a `VolumeFailedDelete`
+event (`FailedPrecondition`) and can be deleted after switching it to `Retain`:
 
 ```bash
 kubectl -n tcloud-public-csi-manual-sfsturbo delete pod sfsturbo-static
 kubectl -n tcloud-public-csi-manual-sfsturbo delete pvc sfsturbo-static-app sfsturbo-static-root
-kubectl get pv sfsturbo-manual-static-app      # STATUS Failed
+kubectl get pv sfsturbo-manual-static-app sfsturbo-manual-static-root   # STATUS Released
 kubectl describe pv sfsturbo-manual-static-app | grep "is not deleted"
-kubectl get pv sfsturbo-manual-static-root     # STATUS Released
+kubectl patch pv sfsturbo-manual-static-app -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 kubectl delete pv sfsturbo-manual-static-app sfsturbo-manual-static-root
 kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- cat /data/app/app.txt   # app
 ```
 
-The health monitor checks bound volumes once a minute. For a volume whose share
-does not exist it must log `NotFound`, for the healthy `sfsturbo-pvc` nothing:
+The health monitor checks bound volumes once a minute (with retries on errors).
+For a volume whose share does not exist it must log `NotFound`, for the healthy
+`sfsturbo-pvc` nothing:
 
 ```bash
 kubectl apply -f deploy/manual/sfsturbo/static/missing.yaml
