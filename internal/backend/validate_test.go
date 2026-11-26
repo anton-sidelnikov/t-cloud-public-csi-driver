@@ -2,6 +2,7 @@ package backend_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -39,6 +40,10 @@ func (fullService) ListSnapshots(context.Context, backend.ListSnapshotsRequest) 
 	return nil, nil
 }
 
+type gettingService struct{ coreService }
+
+func (gettingService) GetVolume(context.Context, string) (*backend.Volume, error) { return nil, nil }
+
 type testDriver struct {
 	controllerCaps []csi.ControllerServiceCapability_RPC_Type
 	nodeCaps       []csi.NodeServiceCapability_RPC_Type
@@ -73,6 +78,8 @@ func TestValidate(t *testing.T) {
 	stage := []csi.NodeServiceCapability_RPC_Type{csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME}
 	create := []csi.ControllerServiceCapability_RPC_Type{csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME}
 	publish := []csi.ControllerServiceCapability_RPC_Type{csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME}
+	getting := append(slices.Clone(create), csi.ControllerServiceCapability_RPC_GET_VOLUME, csi.ControllerServiceCapability_RPC_VOLUME_CONDITION)
+	condition := append(slices.Clone(create), csi.ControllerServiceCapability_RPC_VOLUME_CONDITION)
 	tests := []struct {
 		name    string
 		driver  backend.Driver
@@ -99,6 +106,23 @@ func TestValidate(t *testing.T) {
 			name:    "file share with node expand",
 			driver:  testShareDriver{testDriver{controllerCaps: create, nodeCaps: append(stage, csi.NodeServiceCapability_RPC_EXPAND_VOLUME)}},
 			service: coreService{},
+			wantErr: true,
+		},
+		{
+			name:    "file share with get volume",
+			driver:  testShareDriver{testDriver{controllerCaps: getting, nodeCaps: stage}},
+			service: gettingService{},
+		},
+		{
+			name:    "file share with get volume but no getter",
+			driver:  testShareDriver{testDriver{controllerCaps: getting, nodeCaps: stage}},
+			service: coreService{},
+			wantErr: true,
+		},
+		{
+			name:    "volume condition without get volume",
+			driver:  testShareDriver{testDriver{controllerCaps: condition, nodeCaps: stage}},
+			service: gettingService{},
 			wantErr: true,
 		},
 		{

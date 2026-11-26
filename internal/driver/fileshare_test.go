@@ -50,7 +50,7 @@ func (fakeShareDriver) NodeCapabilities() []csi.NodeServiceCapability_RPC_Type {
 func (fakeShareDriver) ShareMount(_ string, volumeContext map[string]string) (backend.ShareMount, error) {
 	source := volumeContext["exportLocation"]
 	if source == "" {
-		return backend.ShareMount{}, errors.New("exportLocation is required")
+		return backend.ShareMount{}, fmt.Errorf("exportLocation is required: %w", backend.ErrExportLocationUnknown)
 	}
 	return backend.ShareMount{Source: source, FSType: "nfs", Options: []string{"vers=3", "nolock"}}, nil
 }
@@ -352,4 +352,97 @@ func TestOSVolumeStatter(t *testing.T) {
 	if _, err := (osVolumeStatter{}).Stats(t.TempDir() + "/missing"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Stats(missing) error = %v, want fs.ErrNotExist", err)
 	}
+}
+
+// listingShareDriver advertises the get volume and volume condition capabilities.
+type listingShareDriver struct{ fakeShareDriver }
+
+func (listingShareDriver) ControllerCapabilities() []csi.ControllerServiceCapability_RPC_Type {
+	return []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_GET_VOLUME,
+		csi.ControllerServiceCapability_RPC_VOLUME_CONDITION,
+	}
+}
+
+// listingShareService adds VolumeGetter to fakeShareService.
+type listingShareService struct {
+	fakeShareService
+	volumes   []*backend.Volume
+	deleteErr error
+}
+
+func (f *listingShareService) DeleteVolume(context.Context, string) error { return f.deleteErr }
+
+func (f *listingShareService) GetVolume(_ context.Context, volumeID string) (*backend.Volume, error) {
+	for _, vol := range f.volumes {
+		if vol.ID == volumeID {
+			return vol, nil
+		}
+	}
+	return nil, fmt.Errorf("volume %s: %w", volumeID, backend.ErrVolumeNotFound)
+}
+
+func listingService() *listingShareService {
+	return &listingShareService{volumes: []*backend.Volume{
+		{ID: "share-1", SizeBytes: 1, ExportLocation: "10.0.0.5:/", Condition: backend.VolumeCondition{Message: "available"}},
+		{ID: "share-2", SizeBytes: 2, ExportLocation: "10.0.0.6:/", Condition: backend.VolumeCondition{Abnormal: true, Message: "frozen"}},
+		{ID: "share-3", SizeBytes: 3, ExportLocation: "10.0.0.7:/"},
+	}}
+}
+
+func TestValidateAcceptsListingFileShareBackend(t *testing.T) {
+	if err := backend.Validate(listingShareDriver{}, listingService()); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestControllerGetVolume(t *testing.T) {
+	server := newControllerServer(config.Config{}, listingShareDriver{}, listingService())
+
+	resp, err := server.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "share-2"})
+	if err != nil {
+		t.Fatalf("ControllerGetVolume: %v", err)
+	}
+	if resp.GetVolume().GetVolumeContext()["exportLocation"] != "10.0.0.6:/" || !resp.GetStatus().GetVolumeCondition().GetAbnormal() {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	_, err = server.ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "missing"})
+	assertCode(t, err, codes.NotFound)
+
+	_, err = newControllerServer(config.Config{}, fakeShareDriver{}, &fakeShareService{}).ControllerGetVolume(context.Background(), &csi.ControllerGetVolumeRequest{VolumeId: "share-1"})
+	assertCode(t, err, codes.Unimplemented)
+}
+
+func TestDeleteVolumeRefusesUnsupportedVolume(t *testing.T) {
+	service := listingService()
+	service.deleteErr = fmt.Errorf("subdirectory: %w", backend.ErrVolumeOperationNotSupported)
+	_, err := newControllerServer(config.Config{}, listingShareDriver{}, service).DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "share-1:data"})
+	assertCode(t, err, codes.FailedPrecondition)
+}
+
+func TestNodeStageVolumeLooksUpExportLocation(t *testing.T) {
+	mounter := &fakeMounter{mounted: map[string]bool{}}
+	server := newShareNodeServer(mounter, &fakeDeviceManager{})
+	server.volumeGetter = listingService()
+
+	_, err := server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{
+		VolumeId:          "share-2",
+		StagingTargetPath: "/staging/share-2",
+		VolumeCapability:  multiNodeMountCapability(),
+	})
+	if err != nil {
+		t.Fatalf("NodeStageVolume: %v", err)
+	}
+	if len(mounter.mountCalls) != 1 || mounter.mountCalls[0].source != "10.0.0.6:/" {
+		t.Fatalf("unexpected mount calls: %+v", mounter.mountCalls)
+	}
+
+	_, err = server.NodeStageVolume(context.Background(), &csi.NodeStageVolumeRequest{
+		VolumeId:          "missing",
+		StagingTargetPath: "/staging/missing",
+		VolumeCapability:  multiNodeMountCapability(),
+	})
+	assertCode(t, err, codes.NotFound)
 }

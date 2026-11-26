@@ -43,6 +43,17 @@ func Validate(driver Driver, service Service) error {
 		return fmt.Errorf("file share backend %s must not support node EXPAND_VOLUME", driver.Name())
 	}
 
+	if _, ok := service.(VolumeGetter); slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_GET_VOLUME) && !ok {
+		return fmt.Errorf("backend %s advertises GET_VOLUME but its service does not implement VolumeGetter", driver.Name())
+	}
+	if slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES) {
+		return fmt.Errorf("backend %s advertises LIST_VOLUMES, which the driver does not implement", driver.Name())
+	}
+	if slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_VOLUME_CONDITION) &&
+		!slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_GET_VOLUME) {
+		return fmt.Errorf("backend %s advertises VOLUME_CONDITION without GET_VOLUME", driver.Name())
+	}
+
 	snapshots := slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT) ||
 		slices.Contains(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
 	if _, ok := service.(Snapshotter); snapshots && !ok {

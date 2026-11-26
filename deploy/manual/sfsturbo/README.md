@@ -108,6 +108,63 @@ Restore `Delete` before the cleanup so that the share is removed with the claim:
 kubectl patch pv "$PV" -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
 ```
 
+## Existing file system and directory
+
+Run this before the cleanup: it mounts the share of `sfsturbo-pvc` through static
+PVs, the whole share and its directory `app`. Install the driver with the health
+monitor first, it is checked below:
+
+```bash
+kubectl apply -k deploy/manual/sfsturbo-health
+kubectl -n tcloud-public-csi-sfsturbo rollout status deployment/tcloud-public-csi-controller-sfsturbo
+kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- \
+  sh -c 'mkdir -p /data/app && echo app > /data/app/app.txt'
+PV=$(kubectl -n tcloud-public-csi-manual-sfsturbo get pvc sfsturbo-pvc -o jsonpath='{.spec.volumeName}')
+SHARE_ID=$(kubectl get pv "$PV" -o jsonpath='{.spec.csi.volumeHandle}')
+sed "s/SHARE_ID/${SHARE_ID}/" deploy/manual/sfsturbo/static/static.yaml | kubectl apply -f -
+kubectl -n tcloud-public-csi-manual-sfsturbo wait --for=condition=Ready pod/sfsturbo-static --timeout=5m
+kubectl -n tcloud-public-csi-manual-sfsturbo logs sfsturbo-static
+kubectl -n tcloud-public-csi-sfsturbo logs daemonset/tcloud-public-csi-node-sfsturbo \
+  -c tcloud-public-csi-driver | grep "looked up file share volume context"
+```
+
+The pod log must list `shared.txt` and `app` under `/root-share` and `app.txt`
+under `/app-dir`. The static PVs have no export location, the node looks it up.
+
+The root PV has the same volume handle as `sfsturbo-pvc` and shares its staging
+mount, so its lookup is logged only when no pod of `sfsturbo-pvc` runs on the
+node. After the pods are deleted, both staging mounts must be removed from the
+node (the node log shows `unmounting volume path` for both `globalmount` paths).
+
+The directory PV has `persistentVolumeReclaimPolicy: Delete`. Deleting its claim
+must not delete the share; the PV stays `Released` with a `VolumeFailedDelete`
+event (`FailedPrecondition`) and can be deleted after switching it to `Retain`:
+
+```bash
+kubectl -n tcloud-public-csi-manual-sfsturbo delete pod sfsturbo-static
+kubectl -n tcloud-public-csi-manual-sfsturbo delete pvc sfsturbo-static-app sfsturbo-static-root
+kubectl get pv sfsturbo-manual-static-app sfsturbo-manual-static-root   # STATUS Released
+kubectl describe pv sfsturbo-manual-static-app | grep "is not deleted"
+kubectl patch pv sfsturbo-manual-static-app -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+kubectl delete pv sfsturbo-manual-static-app sfsturbo-manual-static-root
+kubectl -n tcloud-public-csi-manual-sfsturbo exec sfsturbo-reader -- cat /data/app/app.txt   # app
+```
+
+The health monitor checks bound volumes once a minute (with retries on errors).
+For a volume whose share does not exist it must log `NotFound`, for the healthy
+`sfsturbo-pvc` nothing:
+
+```bash
+kubectl apply -f deploy/manual/sfsturbo/static/missing.yaml
+sleep 120
+kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo \
+  -c csi-external-health-monitor-controller | grep -i "error\|notfound"
+kubectl get events -A --field-selector reason=VolumeConditionAbnormal
+kubectl delete -f deploy/manual/sfsturbo/static/missing.yaml
+```
+
+A frozen or failed share produces a `VolumeConditionAbnormal` event on its claim.
+
 ## Cleanup
 
 ```bash

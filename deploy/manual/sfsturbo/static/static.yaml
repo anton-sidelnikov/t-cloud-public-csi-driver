@@ -1,0 +1,85 @@
+# Static volumes on the share of the dynamic claim: the whole share and its
+# directory "app". SHARE_ID is replaced before applying.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sfsturbo-manual-static-root
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: tcloud-public-csi-manual-sfsturbo
+    name: sfsturbo-static-root
+  csi:
+    driver: csi.sfsturbo.tcloudpublic.com
+    volumeHandle: SHARE_ID
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sfsturbo-manual-static-app
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: ""
+  claimRef:
+    namespace: tcloud-public-csi-manual-sfsturbo
+    name: sfsturbo-static-app
+  csi:
+    driver: csi.sfsturbo.tcloudpublic.com
+    volumeHandle: SHARE_ID:app
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-static-root
+  namespace: tcloud-public-csi-manual-sfsturbo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sfsturbo-manual-static-root
+  resources:
+    requests:
+      storage: 500Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sfsturbo-static-app
+  namespace: tcloud-public-csi-manual-sfsturbo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sfsturbo-manual-static-app
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sfsturbo-static
+  namespace: tcloud-public-csi-manual-sfsturbo
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: [sh, -c, "ls /root-share /app-dir && tail -f /dev/null"]
+      volumeMounts:
+        - name: root
+          mountPath: /root-share
+        - name: app
+          mountPath: /app-dir
+  volumes:
+    - name: root
+      persistentVolumeClaim:
+        claimName: sfsturbo-static-root
+    - name: app
+      persistentVolumeClaim:
+        claimName: sfsturbo-static-app

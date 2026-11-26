@@ -90,7 +90,7 @@ func (s *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolu
 
 	if err := s.service.DeleteVolume(ctx, req.GetVolumeId()); err != nil {
 		logger.Error("delete volume failed", "error", err)
-		return nil, status.Errorf(codes.Internal, "delete volume: %v", err)
+		return nil, status.Errorf(volumeErrorCode(err), "delete volume: %v", err)
 	}
 	logger.Info("delete volume completed")
 
@@ -183,7 +183,7 @@ func (s *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi.
 	size, err := s.service.ExpandVolume(ctx, req.GetVolumeId(), req.GetCapacityRange().GetRequiredBytes())
 	if err != nil {
 		logger.Error("controller expand failed", "error", err)
-		return nil, status.Errorf(codes.Internal, "expand volume: %v", err)
+		return nil, status.Errorf(volumeErrorCode(err), "expand volume: %v", err)
 	}
 	logger.Info("controller expand completed", "capacity_bytes", size)
 
@@ -316,8 +316,50 @@ func (s *controllerServer) ListSnapshots(ctx context.Context, req *csi.ListSnaps
 	return &csi.ListSnapshotsResponse{Entries: entries, NextToken: nextToken}, nil
 }
 
-func (s *controllerServer) ControllerGetVolume(context.Context, *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ControllerGetVolume is not implemented yet")
+func (s *controllerServer) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+	getter, ok := s.service.(backend.VolumeGetter)
+	if !ok || !s.hasCapability(csi.ControllerServiceCapability_RPC_GET_VOLUME) {
+		return nil, status.Error(codes.Unimplemented, "backend does not get volumes")
+	}
+	if req.GetVolumeId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "volume_id is required")
+	}
+
+	vol, err := getter.GetVolume(ctx, req.GetVolumeId())
+	if err != nil {
+		if !errors.Is(err, backend.ErrVolumeNotFound) {
+			s.loggerOrDefault().Error("get volume failed", "volume_id", req.GetVolumeId(), "error", err)
+		}
+		return nil, status.Errorf(volumeErrorCode(err), "get volume: %v", err)
+	}
+
+	return &csi.ControllerGetVolumeResponse{
+		Volume: toCSIVolume(s.driver, vol, nil),
+		Status: &csi.ControllerGetVolumeResponse_VolumeStatus{VolumeCondition: s.volumeCondition(vol)},
+	}, nil
+}
+
+func (s *controllerServer) hasCapability(capability csi.ControllerServiceCapability_RPC_Type) bool {
+	return slices.Contains(s.driver.ControllerCapabilities(), capability)
+}
+
+func (s *controllerServer) volumeCondition(vol *backend.Volume) *csi.VolumeCondition {
+	if !s.hasCapability(csi.ControllerServiceCapability_RPC_VOLUME_CONDITION) {
+		return nil
+	}
+	return &csi.VolumeCondition{Abnormal: vol.Condition.Abnormal, Message: vol.Condition.Message}
+}
+
+// volumeErrorCode maps backend errors of volume operations to CSI status codes.
+func volumeErrorCode(err error) codes.Code {
+	switch {
+	case errors.Is(err, backend.ErrVolumeNotFound):
+		return codes.NotFound
+	case errors.Is(err, backend.ErrVolumeOperationNotSupported):
+		return codes.FailedPrecondition
+	default:
+		return codes.Internal
+	}
 }
 
 func toCSIVolume(driver backend.Driver, vol *backend.Volume, source *csi.VolumeContentSource) *csi.Volume {

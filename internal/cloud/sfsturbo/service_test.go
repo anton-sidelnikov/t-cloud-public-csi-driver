@@ -34,7 +34,7 @@ func (f *fakeAPI) Create(opts shares.CreateOpts) (*shares.TurboResponse, error) 
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
-	return &shares.TurboResponse{ID: "share-1", Name: opts.Name, Status: statusCreating}, nil
+	return &shares.TurboResponse{ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: opts.Name, Status: statusCreating}, nil
 }
 
 func (f *fakeAPI) Get(string) (*shares.Turbo, error) {
@@ -59,7 +59,7 @@ func (f *fakeAPI) Expand(_ string, newSizeGiB int) error {
 
 func share(status, subStatus, size, export string) getResult {
 	return getResult{share: &shares.Turbo{
-		ID: "share-1", Name: "pvc-1234", Status: status, SubStatus: subStatus, Size: size,
+		ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: status, SubStatus: subStatus, Size: size,
 		ExportLocation: export, ShareType: "STANDARD", AvailabilityZone: "eu-de-01", CryptKeyID: "kms",
 	}}
 }
@@ -106,7 +106,7 @@ func TestCreateVolumeWaitsForActiveShare(t *testing.T) {
 		opts.SecurityGroupID != "sg" || opts.Metadata.CryptKeyID != "kms" {
 		t.Fatalf("CreateOpts = %+v", opts)
 	}
-	if vol.ID != "share-1" || vol.ExportLocation != "192.168.0.90:/" || vol.SizeBytes != 500*gibibyte || vol.VolumeType != "STANDARD" || vol.KMSKeyID != "kms" {
+	if vol.ID != "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e" || vol.ExportLocation != "192.168.0.90:/" || vol.SizeBytes != 500*gibibyte || vol.VolumeType != "STANDARD" || vol.KMSKeyID != "kms" {
 		t.Fatalf("CreateVolume() = %+v", vol)
 	}
 }
@@ -128,7 +128,7 @@ func TestCreateVolumeRetriesTransientGetErrors(t *testing.T) {
 }
 
 func TestCreateVolumeHandlesNameConflict(t *testing.T) {
-	listedLate := shares.Turbo{ID: "share-1", Name: "pvc-1234", Status: statusCreating, Size: "500.00"}
+	listedLate := shares.Turbo{ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusCreating, Size: "500.00"}
 	tests := map[string]struct {
 		lists   [][]shares.Turbo
 		wantErr bool
@@ -155,8 +155,8 @@ func TestCreateVolumeHandlesNameConflict(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || vol.ID != "share-1" {
-				t.Fatalf("CreateVolume() = %+v, %v; want reuse of share-1", vol, err)
+			if err != nil || vol.ID != "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e" {
+				t.Fatalf("CreateVolume() = %+v, %v; want reuse of 6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", vol, err)
 			}
 		})
 	}
@@ -177,7 +177,7 @@ func (f *listSequenceAPI) List() ([]shares.Turbo, error) {
 
 func TestCreateVolumeReusesShareWithSameName(t *testing.T) {
 	api := &fakeAPI{
-		listed: []shares.Turbo{{ID: "other", Name: "pvc-other"}, {ID: "share-1", Name: "pvc-1234", Status: statusCreating, Size: "500.00"}},
+		listed: []shares.Turbo{{ID: "other", Name: "pvc-other"}, {ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusCreating, Size: "500.00"}},
 		gets:   []getResult{share(statusActive, "", "500.00", "192.168.0.90:/")},
 	}
 
@@ -185,8 +185,8 @@ func TestCreateVolumeReusesShareWithSameName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateVolume() error = %v", err)
 	}
-	if len(api.created) != 0 || vol.ID != "share-1" {
-		t.Fatalf("Create calls = %d, volume = %+v; want reuse of share-1", len(api.created), vol)
+	if len(api.created) != 0 || vol.ID != "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e" {
+		t.Fatalf("Create calls = %d, volume = %+v; want reuse of 6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", len(api.created), vol)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestCreateVolumePassesFileSystemTypeMetadata(t *testing.T) {
 func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
 	matching := func() shares.Turbo {
 		return shares.Turbo{
-			ID: "share-1", Name: "pvc-1234", Status: statusActive, Size: "500.00", ShareType: "standard",
+			ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusActive, Size: "500.00", ShareType: "standard",
 			AvailabilityZone: "eu-de-01", VpcID: "vpc", SubnetID: "subnet", SecurityGroupID: "sg", CryptKeyID: "kms",
 		}
 	}
@@ -252,7 +252,7 @@ func TestCreateVolumeChecksExistingShareAttributes(t *testing.T) {
 
 func TestCreateVolumeIgnoresShareTypeOfHPCShare(t *testing.T) {
 	existing := shares.Turbo{
-		ID: "share-1", Name: "pvc-1234", Status: statusActive, Size: "1228.00", ShareType: "PERFORMANCE",
+		ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusActive, Size: "1228.00", ShareType: "PERFORMANCE",
 		ExpandType: "hpc", HpcBW: "40M",
 	}
 	api := &fakeAPI{listed: []shares.Turbo{existing}, gets: []getResult{share(statusActive, "", "1228.00", "192.168.0.90:/")}}
@@ -267,7 +267,7 @@ func TestCreateVolumeIgnoresShareTypeOfHPCShare(t *testing.T) {
 func TestCreateVolumeChecksShareFoundAfterConflict(t *testing.T) {
 	api := &listSequenceAPI{
 		fakeAPI: &fakeAPI{createErr: golangsdk.ErrDefault409{}},
-		lists:   [][]shares.Turbo{nil, {{ID: "share-1", Name: "pvc-1234", Status: statusCreating, Size: "500.00", VpcID: "other"}}},
+		lists:   [][]shares.Turbo{nil, {{ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusCreating, Size: "500.00", VpcID: "other"}}},
 	}
 	svc := newService(config.Config{Timeout: time.Second}, api)
 
@@ -306,7 +306,7 @@ func TestDeleteVolume(t *testing.T) {
 			svc := testService(api)
 			svc.cfg.Timeout = 20 * time.Millisecond
 
-			err := svc.DeleteVolume(context.Background(), "share-1")
+			err := svc.DeleteVolume(context.Background(), "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e")
 			if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("DeleteVolume() error = %v, want %q", err, tt.wantErr)
 			}
@@ -371,7 +371,7 @@ func TestExpandVolume(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeAPI{gets: tt.gets}
 
-			got, err := testService(api).ExpandVolume(context.Background(), "share-1", tt.requestedGiB*gibibyte)
+			got, err := testService(api).ExpandVolume(context.Background(), "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", tt.requestedGiB*gibibyte)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("ExpandVolume() error = %v, want %q", err, tt.wantErr)
@@ -397,7 +397,7 @@ func TestCreateVolumeDeletesShareWithoutRequestedEncryption(t *testing.T) {
 	}{
 		"new share not encrypted":    {get: unencrypted},
 		"new share with another key": {get: otherKey},
-		"reused share not encrypted": {listed: []shares.Turbo{{ID: "share-1", Name: "pvc-1234", Status: statusCreating}}, get: unencrypted},
+		"reused share not encrypted": {listed: []shares.Turbo{{ID: "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e", Name: "pvc-1234", Status: statusCreating}}, get: unencrypted},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -421,5 +421,44 @@ func TestCreateVolumeAcceptsEncryptedShareWithoutRequestedKey(t *testing.T) {
 
 	if _, err := testService(api).CreateVolume(context.Background(), req); err != nil || len(api.deleted) != 0 {
 		t.Fatalf("CreateVolume() error = %v, Delete calls = %d", err, len(api.deleted))
+	}
+}
+
+const testShareID = "6b9c1f2e-3d4a-4b5c-8d7e-9f0a1b2c3d4e"
+
+func TestGetVolume(t *testing.T) {
+	api := &fakeAPI{gets: []getResult{share(statusActive, "", "500.00", "192.168.0.90:/")}}
+	vol, err := testService(api).GetVolume(context.Background(), testShareID+":data")
+	if err != nil || vol.ID != testShareID+":data" || vol.ExportLocation != "192.168.0.90:/" || vol.Condition.Abnormal {
+		t.Fatalf("GetVolume() = %+v, %v", vol, err)
+	}
+
+	for name, api := range map[string]*fakeAPI{
+		"not found": {gets: []getResult{notFound()}},
+		"deleted":   {gets: []getResult{share(statusDeleted, "", "500.00", "")}},
+	} {
+		if _, err := testService(api).GetVolume(context.Background(), testShareID); !errors.Is(err, backend.ErrVolumeNotFound) {
+			t.Errorf("%s: GetVolume() error = %v, want ErrVolumeNotFound", name, err)
+		}
+	}
+	if _, err := testService(&fakeAPI{}).GetVolume(context.Background(), "not-a-share"); !errors.Is(err, backend.ErrVolumeNotFound) {
+		t.Errorf("GetVolume() of an invalid ID error = %v, want ErrVolumeNotFound", err)
+	}
+}
+
+func TestSubdirectoryVolumesAreNotDeletedOrExpanded(t *testing.T) {
+	api := &fakeAPI{gets: []getResult{share(statusActive, "", "500.00", "")}}
+	svc := testService(api)
+	if err := svc.DeleteVolume(context.Background(), testShareID+":data"); !errors.Is(err, backend.ErrVolumeOperationNotSupported) {
+		t.Errorf("DeleteVolume() error = %v, want ErrVolumeOperationNotSupported", err)
+	}
+	if _, err := svc.ExpandVolume(context.Background(), testShareID+":data", 600*gibibyte); !errors.Is(err, backend.ErrVolumeOperationNotSupported) {
+		t.Errorf("ExpandVolume() error = %v, want ErrVolumeOperationNotSupported", err)
+	}
+	if err := svc.DeleteVolume(context.Background(), "not-a-share"); err != nil {
+		t.Errorf("DeleteVolume() of an invalid ID error = %v, want nil", err)
+	}
+	if len(api.deleted) != 0 || len(api.expanded) != 0 {
+		t.Fatalf("Delete calls = %v, Expand calls = %v; want none", api.deleted, api.expanded)
 	}
 }

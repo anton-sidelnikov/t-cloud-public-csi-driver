@@ -17,6 +17,7 @@ Kubernetes [CSI](https://kubernetes-csi.github.io/docs/) driver for T Cloud Publ
 - EVS: raw block volumes, snapshots and restore, availability zone topology
 - KMS encryption for EVS and SFS Turbo
 - SFS Turbo: Standard, Performance, Enhanced and HPC file systems
+- SFS Turbo: existing file systems and their directories as volumes, volume health monitoring
 
 ## Requirements
 
