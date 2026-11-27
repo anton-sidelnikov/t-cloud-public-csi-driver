@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tcloud-public-csi-node
+  namespace: tcloud-public-csi-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: node-driver-registrar
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.gpsfs.tcloudpublic.com/csi.sock
+        - name: tcloud-public-csi-driver
+          env:
+            - name: CSI_BACKEND
+              value: gpsfs
+            # The node plugin mounts file systems without calling the API, so it gets no credentials.
+            - name: CSI_MODE
+              value: node
+            - name: OS_AUTH_URL
+              $patch: delete
+            - name: OS_DOMAIN_NAME
+              $patch: delete
+            - name: OS_USERNAME
+              $patch: delete
+            - name: OS_PASSWORD
+              $patch: delete
+            - name: OS_PROJECT_ID
+              $patch: delete
+            - name: OS_PROJECT_NAME
+              $patch: delete
+        # hostNetwork: must not collide with the EVS (:9808) and SFS Turbo (:9809) node probes.
+        - name: liveness-probe
+          args:
+            - --csi-address=/csi/csi.sock
+            - --http-endpoint=:9810
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/csi.gpsfs.tcloudpublic.com
+            type: DirectoryOrCreate

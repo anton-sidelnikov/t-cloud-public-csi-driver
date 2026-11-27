@@ -206,3 +206,9 @@ variable "kubeconfig_server" {
     error_message = "kubeconfig_server must be one of: external_otc, external, internal."
   }
 }
+
+variable "gpsfs_endpoint_service_id" {
+  description = "ID of the SFS General Purpose VPC endpoint service (com.t-systems.otc.eu-de.lz02.obsv2.ipv4 in eu-de)."
+  type        = string
+  default     = "f3c1ab93-6daf-4d32-85c3-d2242823ce84"
+}

@@ -14,8 +14,10 @@ import (
 
 	backendapi "t-cloud-public-csi-driver/internal/backend"
 	backendevs "t-cloud-public-csi-driver/internal/backend/evs"
+	backendgpsfs "t-cloud-public-csi-driver/internal/backend/gpsfs"
 	backendsfsturbo "t-cloud-public-csi-driver/internal/backend/sfsturbo"
 	"t-cloud-public-csi-driver/internal/cloud/evs"
+	"t-cloud-public-csi-driver/internal/cloud/gpsfs"
 	"t-cloud-public-csi-driver/internal/cloud/sfsturbo"
 	"t-cloud-public-csi-driver/internal/config"
 )
@@ -107,6 +109,12 @@ func loadBackend(cfg config.Config, authOpts golangsdk.AuthOptions) (backendapi.
 			return nil, nil, err
 		}
 		return backendsfsturbo.New(), service, nil
+	case config.BackendGPSFS:
+		service, err := gpsfs.NewService(cfg, authOpts)
+		if err != nil {
+			return nil, nil, err
+		}
+		return backendgpsfs.New(cfg.Region), service, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported CSI_BACKEND %q", cfg.Backend)
 	}

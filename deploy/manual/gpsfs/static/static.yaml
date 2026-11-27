@@ -1,0 +1,90 @@
+# Static volumes on the file system of the dynamic claim: the whole file system and
+# its directory "app". FS_NAME is replaced before applying.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gpsfs-manual-static-root
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: tcloud-public-csi-manual-gpsfs
+    name: gpsfs-static-root
+  csi:
+    driver: csi.gpsfs.tcloudpublic.com
+    volumeHandle: FS_NAME
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gpsfs-manual-static-app
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: ""
+  claimRef:
+    namespace: tcloud-public-csi-manual-gpsfs
+    name: gpsfs-static-app
+  csi:
+    driver: csi.gpsfs.tcloudpublic.com
+    volumeHandle: FS_NAME:app
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpsfs-static-root
+  namespace: tcloud-public-csi-manual-gpsfs
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: gpsfs-manual-static-root
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpsfs-static-app
+  namespace: tcloud-public-csi-manual-gpsfs
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: gpsfs-manual-static-app
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpsfs-static
+  namespace: tcloud-public-csi-manual-gpsfs
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          ls /root-fs /app-dir
+          tail -f /dev/null
+      volumeMounts:
+        - name: root
+          mountPath: /root-fs
+        - name: app
+          mountPath: /app-dir
+  volumes:
+    - name: root
+      persistentVolumeClaim:
+        claimName: gpsfs-static-root
+    - name: app
+      persistentVolumeClaim:
+        claimName: gpsfs-static-app

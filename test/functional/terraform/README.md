@@ -11,6 +11,7 @@ This Terraform module provisions ephemeral T Cloud Public infrastructure for the
 - CCE worker nodes
 - generated kubeconfig output
 - outputs for the SFS Turbo tests: `vpc_id`, `network_id`, and the ID of the project `default` security group (`sfs_turbo_security_group_id`, looked up, not created)
+- VPC endpoint for SFS General Purpose file systems (`gpsfs_endpoint_id`)
 
 The kubeconfig output is fetched from the OpenTelekomCloud provider's CCE kubeconfig data source instead of being assembled manually, and then its API server is rewritten to the preferred endpoint selected by `kubeconfig_server`:
 

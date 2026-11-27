@@ -116,6 +116,9 @@ jobs:
           kubectl -n tcloud-public-csi-sfsturbo get all -o wide > .cache/functional/artifacts/sfsturbo-resources.txt || true
           kubectl -n tcloud-public-csi-sfsturbo logs deployment/tcloud-public-csi-controller-sfsturbo -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/sfsturbo-controller.log || true
           kubectl -n tcloud-public-csi-sfsturbo logs daemonset/tcloud-public-csi-node-sfsturbo -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/sfsturbo-node.log || true
+          kubectl -n tcloud-public-csi-gpsfs get all -o wide > .cache/functional/artifacts/gpsfs-resources.txt || true
+          kubectl -n tcloud-public-csi-gpsfs logs deployment/tcloud-public-csi-controller-gpsfs -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/gpsfs-controller.log || true
+          kubectl -n tcloud-public-csi-gpsfs logs daemonset/tcloud-public-csi-node-gpsfs -c tcloud-public-csi-driver --tail=500 > .cache/functional/artifacts/gpsfs-node.log || true
 
       - name: Upload diagnostics
         if: always()
@@ -125,7 +128,7 @@ jobs:
           path: .cache/functional/artifacts
           if-no-files-found: ignore
 
-      - name: Delete leaked SFS Turbo shares
+      - name: Delete leaked SFS shares and file systems
         if: always() && (github.event_name != 'workflow_dispatch' || inputs.keep_resources != true)
         continue-on-error: true
         run: make functional-cleanup-shares

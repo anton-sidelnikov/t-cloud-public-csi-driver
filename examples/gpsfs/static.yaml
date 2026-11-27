@@ -1,0 +1,45 @@
+# An existing SFS General Purpose file system used as a volume. Replace FS_NAME
+# with the file system name; the file system must allow access from the VPC of
+# the nodes. Use FS_NAME:team-a to mount only the existing directory "team-a".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gpsfs-existing
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  csi:
+    driver: csi.gpsfs.tcloudpublic.com
+    volumeHandle: FS_NAME
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpsfs-existing
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: gpsfs-existing
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpsfs-existing
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: [sh, -c, "ls -la /data && tail -f /dev/null"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: gpsfs-existing
