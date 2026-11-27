@@ -18,7 +18,7 @@ Kubernetes [CSI](https://kubernetes-csi.github.io/docs/) driver for T Cloud Publ
 - KMS encryption for EVS and SFS Turbo
 - SFS Turbo: Standard, Performance, Enhanced and HPC file systems
 - SFS Turbo: existing file systems and their directories as volumes, volume health monitoring
-- SFS General Purpose: shared file systems without size limits, existing file systems and their directories as volumes
+- SFS General Purpose: shared file systems without size limits, existing file systems and their directories as volumes, volume health monitoring
 
 ## Requirements
 

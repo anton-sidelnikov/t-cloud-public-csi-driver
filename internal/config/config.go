@@ -14,6 +14,11 @@ const (
 	BackendGPSFS    = "gpsfs"
 
 	defaultBackend = BackendEVS
+
+	// ModeNode is set in node plugins; the SFS General Purpose node plugin then needs no
+	// cloud credentials. ModeAll is the default.
+	ModeAll  = "all"
+	ModeNode = "node"
 )
 
 // backendDriverNames maps each CSI_BACKEND to its default CSI driver name. Each backend
@@ -26,6 +31,7 @@ var backendDriverNames = map[string]string{
 
 type Config struct {
 	Backend          string `env:"CSI_BACKEND" envDefault:"evs"`
+	Mode             string `env:"CSI_MODE" envDefault:"all"`
 	DriverName       string `env:"CSI_DRIVER_NAME"`
 	Endpoint         string `env:"CSI_ENDPOINT"`
 	NodeID           string `env:"CSI_NODE_ID"`
@@ -71,6 +77,9 @@ func FromEnv() (Config, error) {
 	if cfg.Endpoint == "" {
 		cfg.Endpoint = defaultEndpoint(cfg.DriverName)
 	}
+	if cfg.Mode != ModeAll && cfg.Mode != ModeNode {
+		return Config{}, fmt.Errorf("unsupported CSI_MODE %q", cfg.Mode)
+	}
 	if cfg.Region == "" {
 		return Config{}, fmt.Errorf("OS_REGION is required")
 	}
@@ -80,7 +89,7 @@ func FromEnv() (Config, error) {
 	if cfg.SecurityToken != "" && cfg.AccessKey == "" {
 		return Config{}, fmt.Errorf("OS_SECURITY_TOKEN requires OS_ACCESS_KEY and OS_SECRET_KEY")
 	}
-	if cfg.UsesAccessKeys() {
+	if cfg.UsesAccessKeys() || !cfg.NeedsCredentials() {
 		return cfg, nil
 	}
 	if cfg.AuthURL == "" {
@@ -105,12 +114,19 @@ func (c Config) UsesAccessKeys() bool {
 	return c.Backend == BackendGPSFS && c.AccessKey != ""
 }
 
+// NeedsCredentials reports whether the driver calls the cloud API. The SFS General Purpose
+// node plugin derives the mount source from the volume and does not.
+func (c Config) NeedsCredentials() bool {
+	return c.Backend != BackendGPSFS || c.Mode != ModeNode
+}
+
 func defaultEndpoint(driverName string) string {
 	return "unix:///var/lib/kubelet/plugins/" + driverName + "/csi.sock"
 }
 
 func (c *Config) normalize() {
 	c.Backend = strings.TrimSpace(c.Backend)
+	c.Mode = strings.TrimSpace(c.Mode)
 	c.DriverName = strings.TrimSpace(c.DriverName)
 	c.Endpoint = strings.TrimSpace(c.Endpoint)
 	c.NodeID = strings.TrimSpace(c.NodeID)

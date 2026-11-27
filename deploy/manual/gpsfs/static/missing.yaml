@@ -1,0 +1,30 @@
+# A bound static volume of a file system that does not exist, for the health monitor check.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gpsfs-manual-static-missing
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: tcloud-public-csi-manual-gpsfs
+    name: gpsfs-static-missing
+  csi:
+    driver: csi.gpsfs.tcloudpublic.com
+    volumeHandle: tcpcsi-manual-missing-file-system
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gpsfs-static-missing
+  namespace: tcloud-public-csi-manual-gpsfs
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: gpsfs-manual-static-missing
+  resources:
+    requests:
+      storage: 1Gi

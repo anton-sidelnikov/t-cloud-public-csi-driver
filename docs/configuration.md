@@ -21,12 +21,13 @@ The controller and node plugins read the credentials from the secret `tcloud-pub
 
 Set in the controller and node manifests; the defaults fit most clusters.
 
-| Variable                   | Default     | Description                                                     |
-|----------------------------|-------------|-----------------------------------------------------------------|
-| `CSI_BACKEND`              | `evs`       | `evs`, `sfsturbo` or `gpsfs`.                                   |
-| `CSI_DRIVER_NAME`          | per backend | CSI driver name.                                                |
-| `CSI_MAX_VOLUMES_PER_NODE` | `32`        | EVS disks per node.                                             |
-| `CSI_REQUEST_TIMEOUT`      | `2m`        | Timeout of cloud operations (`10m` in the SFS Turbo manifests). |
+| Variable                   | Default     | Description                                                                       |
+|----------------------------|-------------|-----------------------------------------------------------------------------------|
+| `CSI_BACKEND`              | `evs`       | `evs`, `sfsturbo` or `gpsfs`.                                                     |
+| `CSI_DRIVER_NAME`          | per backend | CSI driver name.                                                                  |
+| `CSI_MODE`                 | `all`       | `node` in the SFS General Purpose node plugin, which then needs only `OS_REGION`. |
+| `CSI_MAX_VOLUMES_PER_NODE` | `32`        | EVS disks per node.                                                               |
+| `CSI_REQUEST_TIMEOUT`      | `2m`        | Timeout of cloud operations (`10m` in the SFS Turbo manifests).                   |
 
 ## SFS General Purpose Authentication
 
@@ -34,3 +35,5 @@ SFS General Purpose accepts IAM access keys (AK/SK). Either:
 
 - set `OS_REGION`, `OS_ACCESS_KEY` and `OS_SECRET_KEY` of an IAM user; the other `OS_*` keys can then be omitted. Add `OS_SECURITY_TOKEN` for temporary keys, which must be replaced in the secret before they expire; or
 - set the password credentials only; the driver then obtains temporary access keys itself and renews them.
+
+Only the controller uses the credentials; the node plugin gets only `OS_REGION` and `OS_AVAILABILITY_ZONE` from the secret.

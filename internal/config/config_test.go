@@ -189,3 +189,29 @@ func TestFromEnvAccessKeysReplacePasswordOnlyForGPSFS(t *testing.T) {
 		})
 	}
 }
+
+func TestFromEnvGPSFSNodeNeedsNoCredentials(t *testing.T) {
+	tests := map[string]struct {
+		backend, mode string
+		wantErr       bool
+	}{
+		"gpsfs node":       {backend: BackendGPSFS, mode: ModeNode},
+		"gpsfs controller": {backend: BackendGPSFS, mode: ModeAll, wantErr: true},
+		"sfsturbo node":    {backend: BackendSFSTurbo, mode: ModeNode, wantErr: true},
+		"unknown mode":     {backend: BackendGPSFS, mode: "controller", wantErr: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CSI_BACKEND", tt.backend)
+			t.Setenv("CSI_MODE", tt.mode)
+			t.Setenv("OS_REGION", "eu-de")
+			cfg, err := FromEnv()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("FromEnv error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.NeedsCredentials() {
+				t.Fatal("expected no credentials to be needed")
+			}
+		})
+	}
+}

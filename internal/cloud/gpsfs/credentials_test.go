@@ -88,3 +88,13 @@ func TestNewKeySourceUsesConfiguredAccessKeys(t *testing.T) {
 		t.Fatalf("Keys = %+v, %v", keys, err)
 	}
 }
+
+func TestNewKeySourceInNodeModeDoesNotAuthenticate(t *testing.T) {
+	source, err := newKeySource(config.Config{Backend: config.BackendGPSFS, Mode: config.ModeNode}, golangsdk.AuthOptions{})
+	if err != nil {
+		t.Fatalf("newKeySource: %v", err)
+	}
+	if _, err := source.Keys(); err == nil {
+		t.Fatal("expected an error for keys in node mode")
+	}
+}

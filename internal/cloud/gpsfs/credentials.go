@@ -1,6 +1,7 @@
 package gpsfs
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ type keySource interface {
 // newKeySource uses OS_ACCESS_KEY and OS_SECRET_KEY when they are set. Otherwise it
 // authenticates with the OS_* password credentials and issues temporary access keys.
 func newKeySource(cfg config.Config, authOpts golangsdk.AuthOptions) (keySource, error) {
+	if !cfg.NeedsCredentials() {
+		return noKeys{}, nil
+	}
 	if cfg.AccessKey != "" {
 		return staticKeys{AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey, SecurityToken: cfg.SecurityToken}, nil
 	}
@@ -45,6 +49,13 @@ func newKeySource(cfg config.Config, authOpts golangsdk.AuthOptions) (keySource,
 		return nil, fmt.Errorf("init IAM client: %w", err)
 	}
 	return &temporaryKeys{issue: issueTemporaryKeys(provider, identity), now: time.Now}, nil
+}
+
+// noKeys is used by the node plugin, which does not call the API.
+type noKeys struct{}
+
+func (noKeys) Keys() (accessKeys, error) {
+	return accessKeys{}, errors.New("the node plugin has no SFS General Purpose credentials")
 }
 
 type staticKeys accessKeys

@@ -48,6 +48,7 @@ Nodes reach file systems only through a VPC endpoint in their VPC. Create it onc
 | Encryption            | no                                                                    |
 | Volume metrics        | yes (`kubelet_volume_stats_*`)                                        |
 | Existing file systems | whole file system or a directory, see [below](#existing-file-systems) |
+| Volume health         | with the health monitor, see [below](#volume-health)                  |
 
 A new volume can be mounted after about 30 seconds, when the access rules take effect; pods start once the mount succeeds.
 
@@ -88,6 +89,29 @@ To use a file system that was created outside Kubernetes, create a PersistentVol
 - Use `persistentVolumeReclaimPolicy: Retain`. With `Delete`, deleting the claim deletes the file system if it is empty. For a directory volume the driver refuses deletion; set the PV to `Retain` and delete it.
 
 Example: [static.yaml](../examples/gpsfs/static.yaml).
+
+## Volume Health
+
+The optional [health monitor](https://kubernetes-csi.github.io/docs/volume-health-monitor.html) checks every SFS General Purpose volume once a minute. If a file system was deleted outside Kubernetes, it adds a `VolumeConditionAbnormal` warning event to the claim.
+
+Install the driver with the `health-monitor` component instead of step 3 of [Installation](#installation). From the repository root:
+
+```bash
+mkdir -p overlays/gpsfs
+cat > overlays/gpsfs/kustomization.yaml <<EOF
+resources:
+  - ../../deploy/kubernetes/gpsfs   # CCE: ../../deploy/kubernetes/cce/gpsfs
+components:
+  - ../../deploy/kubernetes/components/health-monitor
+EOF
+kubectl apply -k overlays/gpsfs
+```
+
+Abnormal volumes:
+
+```bash
+kubectl get events -A --field-selector reason=VolumeConditionAbnormal
+```
 
 ## Troubleshooting
 

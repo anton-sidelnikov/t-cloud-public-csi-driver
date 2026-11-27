@@ -53,7 +53,8 @@ kubectl get --raw "/api/v1/nodes/${NODE}/proxy/stats/summary" \
   | grep -A12 '"name": "gpsfs-pvc"'
 ```
 
-`capacityBytes`, `usedBytes` and `inodes` must be set.
+`capacityBytes` (250 TB, the service limit) and `inodes` must be set; the
+service reports no usage, so `usedBytes` stays 0.
 
 ## Existing file system and directory
 
@@ -87,6 +88,22 @@ kubectl delete pv gpsfs-manual-static-app gpsfs-manual-static-root
 kubectl -n tcloud-public-csi-manual-gpsfs exec gpsfs-reader -- cat /data/app/app.txt   # app
 ```
 
+## Volume health
+
+Install the driver with the health monitor and check that it reports a static
+volume of a missing file system as `NotFound`, and nothing for `gpsfs-pvc`:
+
+```bash
+kubectl apply -k deploy/manual/gpsfs-health
+kubectl -n tcloud-public-csi-gpsfs rollout status deployment/tcloud-public-csi-controller-gpsfs
+kubectl apply -f deploy/manual/gpsfs/static/missing.yaml
+sleep 120
+kubectl -n tcloud-public-csi-gpsfs logs deployment/tcloud-public-csi-controller-gpsfs \
+  -c csi-external-health-monitor-controller | grep -i "error\|notfound"
+kubectl get events -A --field-selector reason=VolumeConditionAbnormal
+kubectl delete -f deploy/manual/gpsfs/static/missing.yaml
+```
+
 ## Deleting a file system with data
 
 A file system can be deleted only when it is empty. Delete the claim with the
@@ -110,6 +127,7 @@ kubectl -n tcloud-public-csi-manual-gpsfs wait --for=condition=Ready pod/gpsfs-s
 kubectl -n tcloud-public-csi-manual-gpsfs exec gpsfs-static -- sh -c 'rm -rf /root-fs/* /root-fs/.[!.]*'
 kubectl -n tcloud-public-csi-manual-gpsfs delete pod gpsfs-static
 kubectl -n tcloud-public-csi-manual-gpsfs delete pvc gpsfs-static-app gpsfs-static-root
+kubectl patch pv gpsfs-manual-static-app -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 kubectl delete pv gpsfs-manual-static-app gpsfs-manual-static-root
 kubectl wait --for=delete pv/"$PV" --timeout=15m
 ```

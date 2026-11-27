@@ -16,7 +16,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: tcloud-public-csi-external-health-monitor-binding
+  # The part after the dot is replaced with the controller service account name, so that
+  # the drivers of several backends can each have their own binding.
+  name: tcloud-public-csi-external-health-monitor.SERVICE_ACCOUNT
 subjects:
   - kind: ServiceAccount
     name: tcloud-public-csi-controller-sa
